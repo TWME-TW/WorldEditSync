@@ -1,0 +1,7 @@
+name: WorldEditSync
+version: '0.0.1'
+main: dev.twme.worldeditsync.paper.WorldEditSyncPaper
+api-version: '1.21'
+depend:
+  - WorldEdit
+description: Sync WorldEdit clipboard across servers
