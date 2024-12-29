@@ -130,23 +130,6 @@ public class ClipboardManager {
         }
     }
 
-    /**
-     * 檢查玩家的剪貼簿是否有變化
-     */
-    public boolean hasClipboardChanged(Player player, Clipboard currentClipboard) {
-        String playerUUID = player.getUniqueId().toString();
-        String currentHash = calculateClipboardHash(currentClipboard);
-        String storedHash = getLocalHash(player.getUniqueId());
-
-        // 添加調試日誌
-        if (!currentHash.equals(storedHash)) {
-            plugin.getLogger().debug("剪貼簿雜湊值不同:");
-            plugin.getLogger().debug("當前: " + currentHash);
-            plugin.getLogger().debug("儲存: " + storedHash);
-        }
-
-        return !currentHash.equals(storedHash);
-    }
 
     private String calculateHash(byte[] data) {
         return com.google.common.hash.Hashing.sha256()

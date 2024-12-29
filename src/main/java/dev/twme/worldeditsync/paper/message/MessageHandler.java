@@ -1,165 +1,135 @@
 package dev.twme.worldeditsync.paper.message;
 
 import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 import dev.twme.worldeditsync.common.Constants;
-import dev.twme.worldeditsync.common.transfer.TransferSession;
 import dev.twme.worldeditsync.paper.WorldEditSyncPaper;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.messaging.PluginMessageListener;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
-
 public class MessageHandler implements PluginMessageListener {
+
     private final WorldEditSyncPaper plugin;
-    private final Map<String, DownloadSession> downloadSessions;
 
     public MessageHandler(WorldEditSyncPaper plugin) {
         this.plugin = plugin;
-        this.downloadSessions = new HashMap<>();
     }
 
     @Override
-    public void onPluginMessageReceived(@NotNull String channel, @NotNull Player player, @NotNull byte[] message) {
+    public void onPluginMessageReceived(@NotNull String channel, @NotNull Player player, byte @NotNull [] message) {
         if (!channel.equals(Constants.CHANNEL)) {
             return;
         }
 
-        ByteArrayDataInput in = ByteStreams.newDataInput(message);
-        String subChannel = in.readUTF();
-
         try {
+            ByteArrayDataInput in = ByteStreams.newDataInput(message);
+            String subChannel = in.readUTF();
+
             switch (subChannel) {
-                case "ClipboardInfo":
-                    handleClipboardInfo(player, in);
-                    break;
-                case "ClipboardDownloadStart":
-                    handleClipboardDownloadStart(player, in);
-                    break;
-                case "ClipboardChunk":
-                    handleClipboardChunk(player, in);
-                    break;
+                case "ClipboardInfo" -> handleClipboardInfo(player, in);
+                case "ClipboardDownloadStart" -> handleClipboardDownloadStart(player, in);
+                case "ClipboardChunk" -> handleClipboardChunk(player, in);
             }
         } catch (Exception e) {
-            plugin.getLogger().warning("Error handling message: " + e.getMessage());
+            plugin.getLogger().severe("處理插件消息時發生錯誤: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
     private void handleClipboardInfo(Player player, ByteArrayDataInput in) {
-        String playerUuid = in.readUTF();
-        String hash = in.readUTF();
+        try {
+            String playerUuid = in.readUTF();
+            if (!playerUuid.equals(player.getUniqueId().toString())) {
+                return;
+            }
 
-        if (hash.isEmpty()) {
-            return;
-        }
+            String remoteHash = in.readUTF();
+            if (remoteHash.isEmpty()) {
+                return;
+            }
 
-        String localHash = plugin.getClipboardManager().getLocalHash(player.getUniqueId());
-        if (localHash == null || !localHash.equals(hash)) {
-            // 請求下載新的剪貼簿
-            requestClipboardDownload(player);
+            // 獲取本地剪貼簿雜湊值，比較後決定是否需要下載
+            String localHash = plugin.getClipboardManager().getLocalHash(player.getUniqueId());
+            if (!localHash.equals(remoteHash)) {
+                requestClipboardDownload(player);
+            }
+        } catch (Exception e) {
+            plugin.getLogger().severe("處理 ClipboardInfo 時發生錯誤: " + e.getMessage());
         }
     }
 
     private void handleClipboardDownloadStart(Player player, ByteArrayDataInput in) {
-        String playerUuid = in.readUTF();
-        String sessionId = in.readUTF();
-        int totalChunks = in.readInt();
-        int chunkSize = in.readInt();
+        try {
+            String playerUuid = in.readUTF();
+            if (!playerUuid.equals(player.getUniqueId().toString())) {
+                return;
+            }
 
-        downloadSessions.put(sessionId, new DownloadSession(
-                UUID.fromString(playerUuid),
-                totalChunks,
-                chunkSize
-        ));
+            String sessionId = in.readUTF();
+            int totalChunks = in.readInt();
+            int chunkSize = in.readInt();
+
+            plugin.getLogger().info(String.format(
+                    "開始接收玩家 %s 的剪貼簿，共 %d 個區塊",
+                    player.getName(), totalChunks
+            ));
+
+            // 創建新的下載會話
+            plugin.getClipboardManager().startDownloadSession(player, sessionId, totalChunks, chunkSize);
+
+        } catch (Exception e) {
+            plugin.getLogger().severe("處理 ClipboardDownloadStart 時發生錯誤: " + e.getMessage());
+        }
     }
 
     private void handleClipboardChunk(Player player, ByteArrayDataInput in) {
         try {
             String sessionId = in.readUTF();
             int chunkIndex = in.readInt();
-
-            // 檢查數據剩餘長度
-            int available = in.available();
-            plugin.getLogger().debug("Available bytes before length read: " + available);
-
             int length = in.readInt();
 
             // 驗證長度
             if (length <= 0 || length > Constants.DEFAULT_CHUNK_SIZE) {
-                plugin.getLogger().warning("無效的區塊大小: " + length +
-                        " (最大允許: " + Constants.DEFAULT_CHUNK_SIZE + ")");
+                plugin.getLogger().warning(String.format(
+                        "無效的區塊大小: %d (最大允許: %d)",
+                        length, Constants.DEFAULT_CHUNK_SIZE
+                ));
                 return;
             }
 
-            // 確保有足夠的數據可讀
-            if (in.available() < length) {
-                plugin.getLogger().warning("數據不足: 需要 " + length +
-                        " 字節但只有 " + in.available() + " 字節可用");
+            // 嘗試讀取數據
+            byte[] chunkData;
+            try {
+                chunkData = new byte[length];
+                in.readFully(chunkData);
+            } catch (Exception e) {
+                plugin.getLogger().warning("讀取區塊數據失敗: " + e.getMessage());
                 return;
             }
 
-            byte[] chunkData = new byte[length];
-            in.readFully(chunkData);
+            // 將區塊數據添加到管理器中
+            plugin.getClipboardManager().handleChunkData(player, sessionId, chunkIndex, chunkData);
 
-            TransferSession session = transferManager.getSession(sessionId);
-            if (session != null) {
-                session.addChunk(chunkIndex, chunkData);
-
-                plugin.getLogger().debug(String.format(
-                        "接收區塊 - 會話: %s, 索引: %d/%d, 大小: %d bytes",
-                        sessionId, chunkIndex + 1, session.getTotalChunks(), length));
-
-                if (session.isComplete()) {
-                    handleCompleteTransfer(player, session);
-                }
-            }
         } catch (Exception e) {
-            plugin.getLogger().severe("處理區塊數據時發生錯誤: " + e.getMessage());
+            plugin.getLogger().severe("處理 ClipboardChunk 時發生錯誤: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
     private void requestClipboardDownload(Player player) {
-        com.google.common.io.ByteArrayDataOutput out = ByteStreams.newDataOutput();
-        out.writeUTF("ClipboardDownload");
-        out.writeUTF(player.getUniqueId().toString());
-        player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
-    }
+        try {
+            ByteArrayDataOutput out = ByteStreams.newDataOutput();
+            out.writeUTF("ClipboardDownload");
+            out.writeUTF(player.getUniqueId().toString());
 
-    private static class DownloadSession {
-        private final UUID playerUuid;
-        private final int totalChunks;
-        private final int chunkSize;
-        private final Map<Integer, byte[]> chunks;
+            player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
+            player.sendMessage("§e正在從其他伺服器下載剪貼簿...");
 
-        public DownloadSession(UUID playerUuid, int totalChunks, int chunkSize) {
-            this.playerUuid = playerUuid;
-            this.totalChunks = totalChunks;
-            this.chunkSize = chunkSize;
-            this.chunks = new HashMap<>();
-        }
-
-        public void addChunk(int index, byte[] data) {
-            chunks.put(index, data);
-        }
-
-        public boolean isComplete() {
-            return chunks.size() == totalChunks;
-        }
-
-        public byte[] assembleData() {
-            byte[] result = new byte[totalChunks * chunkSize];
-            for (int i = 0; i < totalChunks; i++) {
-                byte[] chunk = chunks.get(i);
-                if (chunk != null) {
-                    System.arraycopy(chunk, 0, result, i * chunkSize, chunk.length);
-                }
-            }
-            return result;
+        } catch (Exception e) {
+            plugin.getLogger().severe("請求下載剪貼簿時發生錯誤: " + e.getMessage());
+            player.sendMessage("§c請求下載剪貼簿時發生錯誤！");
         }
     }
 }
