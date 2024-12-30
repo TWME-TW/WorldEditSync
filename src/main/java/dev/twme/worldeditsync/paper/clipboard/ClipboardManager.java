@@ -392,4 +392,23 @@ public class ClipboardManager {
             this.timestamp = System.currentTimeMillis();
         }
     }
+
+    /**
+     * 請求下載剪貼簿
+     */
+    public void requestClipboardDownload(Player player) {
+        plugin.getLogger().info("請求下載剪貼簿");
+        try {
+            ByteArrayDataOutput out = ByteStreams.newDataOutput();
+            out.writeUTF("ClipboardDownload");
+            out.writeUTF(player.getUniqueId().toString());
+
+            player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
+            player.sendMessage("§e正在從其他伺服器下載剪貼簿...");
+
+        } catch (Exception e) {
+            plugin.getLogger().severe("請求下載剪貼簿時發生錯誤: " + e.getMessage());
+            player.sendMessage("§c請求下載剪貼簿時發生錯誤！");
+        }
+    }
 }
