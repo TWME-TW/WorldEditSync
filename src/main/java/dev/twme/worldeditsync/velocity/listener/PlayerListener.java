@@ -39,5 +39,21 @@ public class PlayerListener {
 
             plugin.getLogger().info("發送剪貼簿信息到新服務器: " + event.getPlayer().getUniqueId());
         }
+
+        // 請求從Velocity下載剪貼簿
+        requestClipboardDownload(event);
+    }
+
+    private void requestClipboardDownload(ServerConnectedEvent event) {
+        ByteArrayDataOutput out = ByteStreams.newDataOutput();
+        out.writeUTF("ClipboardDownload");
+        out.writeUTF(event.getPlayer().getUniqueId().toString());
+
+        event.getServer().sendPluginMessage(
+                MinecraftChannelIdentifier.from(Constants.CHANNEL),
+                out.toByteArray()
+        );
+
+        plugin.getLogger().info("請求從Velocity下載剪貼簿: " + event.getPlayer().getUniqueId());
     }
 }

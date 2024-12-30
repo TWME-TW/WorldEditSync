@@ -33,6 +33,7 @@ public class MessageHandler implements PluginMessageListener {
                 case "ClipboardInfo" -> handleClipboardInfo(player, in);
                 case "ClipboardDownloadStart" -> handleClipboardDownloadStart(player, in);
                 case "ClipboardChunk" -> handleClipboardChunk(player, in);
+                case "ClipboardDownload" -> handleClipboardDownload(player, in);
             }
         } catch (Exception e) {
             plugin.getLogger().severe("處理插件消息時發生錯誤: " + e.getMessage());
@@ -123,6 +124,21 @@ public class MessageHandler implements PluginMessageListener {
         } catch (Exception e) {
             plugin.getLogger().severe("處理 ClipboardChunk 時發生錯誤: " + e.getMessage());
             e.printStackTrace();
+        }
+    }
+
+    private void handleClipboardDownload(Player player, ByteArrayDataInput in) {
+        plugin.getLogger().info("處理 ClipboardDownload");
+        try {
+            String playerUuid = in.readUTF();
+            if (!playerUuid.equals(player.getUniqueId().toString())) {
+                return;
+            }
+
+            // 請求下載剪貼簿
+            requestClipboardDownload(player);
+        } catch (Exception e) {
+            plugin.getLogger().severe("處理 ClipboardDownload 時發生錯誤: " + e.getMessage());
         }
     }
 
