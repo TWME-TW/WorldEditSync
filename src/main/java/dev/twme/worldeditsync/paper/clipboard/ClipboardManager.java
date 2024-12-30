@@ -181,6 +181,13 @@ public class ClipboardManager {
                 return;
             }
 
+            // 在上傳之前檢查並下載剪貼簿
+            if (!checkAndDownloadClipboard(player)) {
+                plugin.getLogger().warning("在上傳之前檢查或下載剪貼簿失敗: " + player.getName());
+                player.sendMessage("§c在上傳之前檢查或下載剪貼簿失敗！");
+                return;
+            }
+
             // 發送上傳開始訊息
             ByteArrayDataOutput out = ByteStreams.newDataOutput();
             out.writeUTF("ClipboardUpload");
@@ -410,5 +417,55 @@ public class ClipboardManager {
             plugin.getLogger().severe("請求下載剪貼簿時發生錯誤: " + e.getMessage());
             player.sendMessage("§c請求下載剪貼簿時發生錯誤！");
         }
+    }
+
+    /**
+     * 檢查並下載剪貼簿
+     */
+    public boolean checkAndDownloadClipboard(Player player) {
+        plugin.getLogger().info("檢查並下載剪貼簿");
+        try {
+            // 檢查本地剪貼簿雜湊值
+            String localHash = getLocalHash(player.getUniqueId());
+            if (localHash.isEmpty()) {
+                // 如果本地沒有剪貼簿，請求下載
+                requestClipboardDownload(player);
+                return false;
+            }
+
+            // 請求遠端剪貼簿雜湊值
+            ByteArrayDataOutput out = ByteStreams.newDataOutput();
+            out.writeUTF("ClipboardInfo");
+            out.writeUTF(player.getUniqueId().toString());
+
+            player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
+
+            // 等待遠端剪貼簿雜湊值
+            // 這裡可以添加等待邏輯，例如使用 CountDownLatch 或其他同步機制
+
+            // 比較本地和遠端剪貼簿雜湊值
+            String remoteHash = getRemoteHash(player.getUniqueId());
+            if (!localHash.equals(remoteHash)) {
+                // 如果雜湊值不同，請求下載
+                requestClipboardDownload(player);
+                return false;
+            }
+
+            return true;
+
+        } catch (Exception e) {
+            plugin.getLogger().severe("檢查並下載剪貼簿時發生錯誤: " + e.getMessage());
+            player.sendMessage("§c檢查並下載剪貼簿時發生錯誤！");
+            return false;
+        }
+    }
+
+    /**
+     * 獲取遠端剪貼簿雜湊值
+     */
+    private String getRemoteHash(UUID playerUuid) {
+        // 這裡可以添加獲取遠端剪貼簿雜湊值的邏輯
+        // 例如，從遠端服務器獲取雜湊值
+        return "";
     }
 }

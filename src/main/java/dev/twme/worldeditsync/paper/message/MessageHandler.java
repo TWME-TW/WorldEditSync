@@ -158,4 +158,10 @@ public class MessageHandler implements PluginMessageListener {
             player.sendMessage("§c請求下載剪貼簿時發生錯誤！");
         }
     }
+
+    // Prevent local clipboard upload before checking or downloading from Velocity
+    public void preventLocalClipboardUpload(Player player) {
+        plugin.getLogger().info("檢查或下載之前，禁止本地剪貼簿上傳");
+        // Add logic to prevent local clipboard upload
+    }
 }
