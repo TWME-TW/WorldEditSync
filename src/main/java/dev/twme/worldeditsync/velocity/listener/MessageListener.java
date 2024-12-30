@@ -12,6 +12,7 @@ import dev.twme.worldeditsync.common.Constants;
 import dev.twme.worldeditsync.velocity.WorldEditSyncVelocity;
 import dev.twme.worldeditsync.velocity.clipboard.ClipboardManager;
 
+import java.util.Optional;
 import java.util.UUID;
 
 public class MessageListener {
@@ -25,35 +26,31 @@ public class MessageListener {
 
     @Subscribe
     public void onPluginMessageFromBackend(PluginMessageEvent event) {
-
-        plugin.getLogger().info("收到插件消息: {}", event.getIdentifier().getId());
+        plugin.getLogger().info("1");
         if (!event.getIdentifier().equals(MinecraftChannelIdentifier.from(Constants.CHANNEL))) {
             return;
         }
-
+        plugin.getLogger().info("2");
         event.setResult(PluginMessageEvent.ForwardResult.handled());
 
-
+        plugin.getLogger().info("3");
         if (!(event.getSource() instanceof ServerConnection backend)) {
             return;
         }
-
-        if (!(event.getSource() instanceof Player)) {
-            return;
-        }
+        plugin.getLogger().info("4");
 
         try {
             ByteArrayDataInput in = ByteStreams.newDataInput(event.getData());
             String subChannel = in.readUTF();
 
-            plugin.getLogger().info("收到插件消息: {}", subChannel);
+            plugin.getLogger().info("收到插件消息(子通道): {}", subChannel);
 
             
             switch (subChannel) {
                 case "ClipboardUpload":
                     handleClipboardUpload(in);
                     break;
-                case "ClipboardDownload":
+                case "ClipboardDownload": // 當 Paper 端要求下載剪貼簿時觸發
                     handleClipboardDownload(in, event);
                     break;
                 case "ClipboardChunk":
@@ -75,7 +72,7 @@ public class MessageListener {
         int chunkSize = in.readInt();
 
         if (totalChunks > Constants.MAX_CHUNKS) {
-            plugin.getLogger().warn("Received upload request with too many chunks: " + totalChunks);
+            plugin.getLogger().warn("Received upload request with too many chunks: {}", totalChunks);
             return;
         }
 
@@ -84,18 +81,26 @@ public class MessageListener {
     }
 
     private void handleClipboardDownload(ByteArrayDataInput in, PluginMessageEvent event) {
-        if (!(event.getSource() instanceof Player player)) {
+        plugin.getLogger().info("處理 ClipboardDownload");
+        String playerUuid = in.readUTF();
+        Player player;
+
+        Optional<Player> playerOptional = plugin.getServer().getPlayer(UUID.fromString(playerUuid));
+        if (playerOptional.isPresent()) {
+            player = playerOptional.get();
+        } else {
+            plugin.getLogger().warn("Player not found: {}", playerUuid);
             return;
         }
-
-        String playerUuid = in.readUTF();
         ClipboardManager.ClipboardData clipboardData =
                 clipboardManager.getClipboard(UUID.fromString(playerUuid));
 
         if (clipboardData != null) {
-            plugin.getLogger().info("找到剪貼板數據，開始發送給玩家: {}", player.getUsername());
+            plugin.getLogger().info("找到剪貼板資料，開始發送給玩家: {}", player.getUsername());
 
             sendClipboardData(player, clipboardData.getData());
+        } else {
+            plugin.getLogger().info("未找到剪貼板資料，請求下載失敗: {}", player.getUsername());
         }
     }
 
@@ -104,8 +109,10 @@ public class MessageListener {
         int chunkIndex = in.readInt();
         int length = in.readInt();
 
+
+
         if (length <= 0 || length > Constants.DEFAULT_CHUNK_SIZE) {
-            plugin.getLogger().warn("Invalid chunk size received: " + length);
+            plugin.getLogger().warn("Invalid chunk size received: {}", length);
             return;
         }
 
@@ -145,6 +152,22 @@ public class MessageListener {
         startOut.writeInt(totalChunks);
         startOut.writeInt(Constants.DEFAULT_CHUNK_SIZE);
 
+
+//        player.sendPluginMessage(
+//                MinecraftChannelIdentifier.from(Constants.CHANNEL),
+//                startOut.toByteArray()
+//        );
+
+
+
+        plugin.getLogger().info("開始向玩家 {} 發送剪貼板數據", player.getUsername());
+        // player.getCurrentServer().ifPresent(server ->
+        //         server.sendPluginMessage(
+        //                 MinecraftChannelIdentifier.from(Constants.CHANNEL),
+        //                 startOut.toByteArray()
+        //         )
+        // );
+
         player.getCurrentServer().ifPresent(server ->
                 server.sendPluginMessage(
                         MinecraftChannelIdentifier.from(Constants.CHANNEL),
@@ -162,16 +185,21 @@ public class MessageListener {
             ByteArrayDataOutput chunkOut = ByteStreams.newDataOutput();
             chunkOut.writeUTF("ClipboardChunk");
             chunkOut.writeUTF(sessionId);
-            chunkOut.writeInt(i);
+            chunkOut.writeInt(i + 1);
             chunkOut.writeInt(chunk.length);
             chunkOut.write(chunk);
 
-            player.getCurrentServer().ifPresent(server ->
-                    server.sendPluginMessage(
-                            MinecraftChannelIdentifier.from(Constants.CHANNEL),
-                            chunkOut.toByteArray()
-                    )
-            );
+//            player.sendPluginMessage(
+//                MinecraftChannelIdentifier.from(Constants.CHANNEL),
+//                chunkOut.toByteArray()
+//            );
+
+             player.getCurrentServer().ifPresent(server ->
+                     server.sendPluginMessage(
+                             MinecraftChannelIdentifier.from(Constants.CHANNEL),
+                             chunkOut.toByteArray()
+                     )
+             );
 
             if (i % 10 == 0 || i == totalChunks - 1) {
                 plugin.getLogger().info("發送進度 - 玩家: {}, 會話: {}, 已發送: {}/{} 區塊",

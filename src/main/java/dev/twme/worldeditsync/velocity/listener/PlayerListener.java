@@ -10,6 +10,8 @@ import dev.twme.worldeditsync.velocity.clipboard.ClipboardManager;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 
+import java.util.concurrent.TimeUnit;
+
 public class PlayerListener {
     private final WorldEditSyncVelocity plugin;
     private final ClipboardManager clipboardManager;
@@ -25,24 +27,45 @@ public class PlayerListener {
         ClipboardManager.ClipboardData clipboardData =
                 clipboardManager.getClipboard(event.getPlayer().getUniqueId());
 
-        if (clipboardData != null) {
-            // 發送剪貼簿信息到新服務器
-            ByteArrayDataOutput out = ByteStreams.newDataOutput();
-            out.writeUTF("ClipboardInfo");
-            out.writeUTF(event.getPlayer().getUniqueId().toString());
-            out.writeUTF(clipboardData.getHash());
+        plugin.getServer().getScheduler().buildTask(plugin, () -> {
+            if (clipboardData != null) {
+                // 發送剪貼簿信息到新服務器
+                ByteArrayDataOutput out = ByteStreams.newDataOutput();
+                out.writeUTF("ClipboardInfo");
+                out.writeUTF(event.getPlayer().getUniqueId().toString());
+                out.writeUTF(clipboardData.getHash());
 
-            event.getServer().sendPluginMessage(
-                    MinecraftChannelIdentifier.from(Constants.CHANNEL),
-                    out.toByteArray()
-            );
+                event.getServer().sendPluginMessage(
+                        MinecraftChannelIdentifier.from(Constants.CHANNEL),
+                        out.toByteArray()
+                );
 
-            plugin.getLogger().info("發送剪貼簿信息到新服務器: " + event.getPlayer().getUniqueId());
-        }
+                plugin.getLogger().info("發送剪貼簿信息到新服務器: {}", event.getPlayer().getUniqueId());
+            } else {
 
-        // 請求從Velocity下載剪貼簿
-        requestClipboardDownload(event);
+                // 請求從Velocity下載剪貼簿
+                // requestClipboardDownload(event);
+
+                // 提醒 Paper Velocity 上沒有剪貼簿資料
+                noticeNoClipboardData(event);
+            }
+        }).delay(1, TimeUnit.SECONDS).schedule();
     }
+
+    private void noticeNoClipboardData(ServerConnectedEvent event) {
+        ByteArrayDataOutput out = ByteStreams.newDataOutput();
+        out.writeUTF("NoClipboardData");
+        out.writeUTF(event.getPlayer().getUniqueId().toString());
+
+        event.getServer().sendPluginMessage(
+                MinecraftChannelIdentifier.from(Constants.CHANNEL),
+                out.toByteArray()
+        );
+
+        plugin.getLogger().info("提醒 Paper Velocity 上沒有剪貼簿資料: {}", event.getPlayer().getUniqueId());
+    }
+
+
 
     private void requestClipboardDownload(ServerConnectedEvent event) {
         ByteArrayDataOutput out = ByteStreams.newDataOutput();
@@ -54,6 +77,6 @@ public class PlayerListener {
                 out.toByteArray()
         );
 
-        plugin.getLogger().info("請求從Velocity下載剪貼簿: " + event.getPlayer().getUniqueId());
+        plugin.getLogger().info("要求 Paper 從 Velocity 下載剪貼簿: {}", event.getPlayer().getUniqueId());
     }
 }

@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 @Plugin(
         id = "worldeditsync",
         name = "WorldEditSync",
-        version = "1.0-SNAPSHOT",
+        version = "0.0.1",
         description = "Sync WorldEdit clipboard across servers",
         authors = {"TWME"}
 )
@@ -28,6 +28,7 @@ public class WorldEditSyncVelocity {
     private ClipboardManager clipboardManager;
     private MessageListener messageListener;
     private PlayerListener playerListener;
+
 
     @Inject
     public WorldEditSyncVelocity(ProxyServer server, Logger logger) {

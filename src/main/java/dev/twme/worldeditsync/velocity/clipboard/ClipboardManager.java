@@ -39,9 +39,15 @@ public class ClipboardManager {
     public void addChunk(String sessionId, int index, byte[] data) {
         TransferSession session = transferSessions.get(sessionId);
         if (session != null) {
+            plugin.getLogger().info("Add chunk: {}", index);
+
             session.addChunk(index, data);
 
+            plugin.getLogger().info("Chunk size: {}, Total chunks: {}",
+                    session.getChunkSize(), session.getTotalChunks());
+
             if (session.isComplete()) {
+                plugin.getLogger().info("Session is complete: {}", sessionId);
                 byte[] fullData = session.assembleData();
                 UUID playerUuid = session.getPlayerUuid();
                 String hash = calculateHash(fullData);
@@ -53,6 +59,8 @@ public class ClipboardManager {
                 // 清理會話
                 transferSessions.remove(sessionId);
             }
+        } else {
+            plugin.getLogger().warn("Session not found: {}", sessionId);
         }
     }
 

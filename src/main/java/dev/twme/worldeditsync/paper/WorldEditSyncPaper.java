@@ -3,6 +3,7 @@ package dev.twme.worldeditsync.paper;
 import dev.twme.worldeditsync.common.Constants;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardWatcher;
+import dev.twme.worldeditsync.paper.listener.PlayerListener;
 import dev.twme.worldeditsync.paper.message.MessageHandler;
 import dev.twme.worldeditsync.paper.worldedit.WorldEditHelper;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -12,6 +13,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
     private WorldEditHelper worldEditHelper;
     private MessageHandler messageHandler;
     private ClipboardWatcher clipboardWatcher;
+    private PlayerListener playerListener;
 
     @Override
     public void onEnable() {
@@ -20,22 +22,26 @@ public class WorldEditSyncPaper extends JavaPlugin {
         this.worldEditHelper = new WorldEditHelper(this);
         this.messageHandler = new MessageHandler(this);
         this.clipboardWatcher = new ClipboardWatcher(this);
+        this.playerListener = new PlayerListener(this);
 
         // 註冊通道
         this.getServer().getMessenger().registerOutgoingPluginChannel(this, Constants.CHANNEL);
         this.getServer().getMessenger().registerIncomingPluginChannel(this, Constants.CHANNEL, messageHandler);
+        getLogger().info("註冊通道: " + Constants.CHANNEL);
 
         // 啟動剪貼簿監視器
         clipboardWatcher.runTaskTimerAsynchronously(this, 20L, 20L);
 
+        // 註冊監聽器
+        getServer().getPluginManager().registerEvents(playerListener, this);
         getLogger().info("WorldEditSync enabled!");
     }
 
     @Override
     public void onDisable() {
         // 取消註冊通道
-        this.getServer().getMessenger().unregisterOutgoingPluginChannel(this);
-        this.getServer().getMessenger().unregisterIncomingPluginChannel(this);
+        // this.getServer().getMessenger().unregisterOutgoingPluginChannel(this);
+        // this.getServer().getMessenger().unregisterIncomingPluginChannel(this);
 
         // 停止任務
         if (clipboardWatcher != null) {

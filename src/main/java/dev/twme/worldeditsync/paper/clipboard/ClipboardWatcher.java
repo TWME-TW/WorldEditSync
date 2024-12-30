@@ -17,11 +17,22 @@ public class ClipboardWatcher extends BukkitRunnable {
     @Override
     public void run() {
         for (Player player : plugin.getServer().getOnlinePlayers()) {
-            checkPlayerClipboard(player);
+
+
+            if (!(player.hasPermission("worldeditsync.sync"))) {
+                plugin.getLogger().info("玩家 " + player.getName() + " 沒有權限");
+                continue;
+            }
+
+            if (!plugin.getClipboardManager().isChecked(player.getUniqueId())) {
+                continue;
+            }
+
+            checkAndUploadPlayerClipboard(player);
         }
     }
 
-    private void checkPlayerClipboard(Player player) {
+    private void checkAndUploadPlayerClipboard(Player player) {
         Clipboard clipboard = plugin.getWorldEditHelper().getPlayerClipboard(player);
         if (clipboard == null) {
             return;
@@ -30,8 +41,6 @@ public class ClipboardWatcher extends BukkitRunnable {
         // 使用新的判斷方法
         if (plugin.getClipboardManager().hasClipboardChanged(player, clipboard)) {
             plugin.getLogger().info("偵測到玩家 " + player.getName() + " 的剪貼簿已更新");
-
-
 
             // 序列化並上傳
             byte[] serializedClipboard = plugin.getWorldEditHelper().serializeClipboard(clipboard);

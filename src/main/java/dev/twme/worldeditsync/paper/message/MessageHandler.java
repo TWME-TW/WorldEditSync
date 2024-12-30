@@ -1,7 +1,6 @@
 package dev.twme.worldeditsync.paper.message;
 
 import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 import dev.twme.worldeditsync.common.Constants;
 import dev.twme.worldeditsync.paper.WorldEditSyncPaper;
@@ -19,21 +18,25 @@ public class MessageHandler implements PluginMessageListener {
 
     @Override
     public void onPluginMessageReceived(@NotNull String channel, @NotNull Player player, byte @NotNull [] message) {
+        plugin.getLogger().info("收到原始消息，通道: " + channel + ", 長度: " + message.length);
+
         if (!channel.equals(Constants.CHANNEL)) {
             return;
         }
 
-        plugin.getLogger().info("收到插件消息: " + channel);
-
         try {
             ByteArrayDataInput in = ByteStreams.newDataInput(message);
             String subChannel = in.readUTF();
+
+            plugin.getLogger().info("收到插件消息(子頻道): " + subChannel);
 
             switch (subChannel) {
                 case "ClipboardInfo" -> handleClipboardInfo(player, in);
                 case "ClipboardDownloadStart" -> handleClipboardDownloadStart(player, in);
                 case "ClipboardChunk" -> handleClipboardChunk(player, in);
                 case "ClipboardDownload" -> handleClipboardDownload(player, in);
+                case "ClipboardUpload" -> handleClipboardUploadRequest(player, in);
+                case "NoClipboardData" -> handleNoClipboardData(player, in);
             }
         } catch (Exception e) {
             plugin.getLogger().severe("處理插件消息時發生錯誤: " + e.getMessage());
@@ -59,6 +62,8 @@ public class MessageHandler implements PluginMessageListener {
             String localHash = plugin.getClipboardManager().getLocalHash(player.getUniqueId());
             if (!localHash.equals(remoteHash)) {
                 requestClipboardDownload(player);
+                plugin.getLogger().info("本地剪貼簿與遠程剪貼簿不匹配，請求下載剪貼簿");
+                plugin.getClipboardManager().requestClipboardDownload(player);
             }
         } catch (Exception e) {
             plugin.getLogger().severe("處理 ClipboardInfo 時發生錯誤: " + e.getMessage());
@@ -120,7 +125,10 @@ public class MessageHandler implements PluginMessageListener {
 
             // 將區塊數據添加到管理器中
             plugin.getClipboardManager().handleChunkData(player, sessionId, chunkIndex, chunkData);
-
+            plugin.getLogger().info(String.format(
+                    "接收區塊數據 - 會話: %s, 區塊索引: %d, 大小: %d",
+                    sessionId, chunkIndex, length
+            ));
         } catch (Exception e) {
             plugin.getLogger().severe("處理 ClipboardChunk 時發生錯誤: " + e.getMessage());
             e.printStackTrace();
@@ -145,23 +153,36 @@ public class MessageHandler implements PluginMessageListener {
     private void requestClipboardDownload(Player player) {
 
         plugin.getLogger().info("請求下載剪貼簿");
-        try {
-            ByteArrayDataOutput out = ByteStreams.newDataOutput();
-            out.writeUTF("ClipboardDownload");
-            out.writeUTF(player.getUniqueId().toString());
+        plugin.getClipboardManager().requestClipboardDownload(player);
+    }
 
-            player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
-            player.sendMessage("§e正在從其他伺服器下載剪貼簿...");
+    private void handleClipboardUploadRequest(Player player, ByteArrayDataInput in) {
+        plugin.getLogger().info("處理 ClipboardUpload");
+        try {
+            String playerUuid = in.readUTF();
+            if (!playerUuid.equals(player.getUniqueId().toString())) {
+                return;
+            }
+
+            plugin.getClipboardManager().startUploadClipboard(player);
 
         } catch (Exception e) {
-            plugin.getLogger().severe("請求下載剪貼簿時發生錯誤: " + e.getMessage());
-            player.sendMessage("§c請求下載剪貼簿時發生錯誤！");
+            plugin.getLogger().severe("處理 ClipboardUpload 時發生錯誤: " + e.getMessage());
         }
     }
 
-    // Prevent local clipboard upload before checking or downloading from Velocity
-    public void preventLocalClipboardUpload(Player player) {
-        plugin.getLogger().info("檢查或下載之前，禁止本地剪貼簿上傳");
-        // Add logic to prevent local clipboard upload
+    private void handleNoClipboardData(Player player, ByteArrayDataInput in) {
+        plugin.getLogger().info("處理 NoClipboardData");
+        try {
+            String playerUuid = in.readUTF();
+            if (!playerUuid.equals(player.getUniqueId().toString())) {
+                return;
+            }
+            plugin.getClipboardManager().check(player.getUniqueId());
+
+
+        } catch (Exception e) {
+            plugin.getLogger().severe("處理 NoClipboardData 時發生錯誤: " + e.getMessage());
+        }
     }
 }

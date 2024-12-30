@@ -12,16 +12,20 @@ import dev.twme.worldeditsync.common.transfer.TransferSession;
 import dev.twme.worldeditsync.paper.WorldEditSyncPaper;
 import org.bukkit.entity.Player;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 public class ClipboardManager {
     private final WorldEditSyncPaper plugin;
     private final Map<UUID, ClipboardData> clipboardCache;
     private final Map<String, TransferSession> activeSessions;
+    private final Set<UUID> firstCheck = new HashSet<>();
 
     public ClipboardManager(WorldEditSyncPaper plugin) {
         this.plugin = plugin;
@@ -133,9 +137,11 @@ public class ClipboardManager {
 
         // 添加區塊數據
         session.addChunk(chunkIndex, chunkData);
+        plugin.getLogger().info("添加區塊數據 - 會話: " + sessionId + ", 索引: " + chunkIndex);
 
         // 檢查是否完成
         if (session.isComplete()) {
+            plugin.getLogger().info("會話 " + sessionId + " 已完成");
             handleCompleteTransfer(player, session);
             activeSessions.remove(sessionId);
         }
@@ -152,14 +158,19 @@ public class ClipboardManager {
                 return;
             }
 
+            Clipboard clipboard = plugin.getWorldEditHelper().deserializeClipboard(fullData);
+
             // 反序列化並設置剪貼簿
             setLocalClipboard(player.getUniqueId(), fullData, calculateClipboardHash(
-                    plugin.getWorldEditHelper().deserializeClipboard(fullData)
+                    clipboard
             ));
+
+            plugin.getWorldEditHelper().setPlayerClipboard(player, clipboard);
 
             plugin.getLogger().info("玩家 " + player.getName() + " 的剪貼簿已同步完成");
             player.sendMessage("§a剪貼簿同步完成！");
 
+            check(player.getUniqueId());
         } catch (Exception e) {
             plugin.getLogger().severe("完成傳輸時發生錯誤: " + e.getMessage());
             player.sendMessage("§c同步剪貼簿時發生錯誤！");
@@ -182,7 +193,7 @@ public class ClipboardManager {
             }
 
             // 在上傳之前檢查並下載剪貼簿
-            if (!checkAndDownloadClipboard(player)) {
+            if (!checkOrDownloadClipboard(player)) {
                 plugin.getLogger().warning("在上傳之前檢查或下載剪貼簿失敗: " + player.getName());
                 player.sendMessage("§c在上傳之前檢查或下載剪貼簿失敗！");
                 return;
@@ -195,6 +206,8 @@ public class ClipboardManager {
             out.writeUTF(sessionId);
             out.writeInt(totalChunks);
             out.writeInt(Constants.DEFAULT_CHUNK_SIZE);
+
+            plugin.getLogger().info("PluginMessage: " + Constants.CHANNEL + ":" + "ClipboardUpload" + ":" + player.getUniqueId() + ":" + sessionId + ":" + totalChunks + ":" + Constants.DEFAULT_CHUNK_SIZE);
 
             player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
 
@@ -225,9 +238,11 @@ public class ClipboardManager {
                 ByteArrayDataOutput out = ByteStreams.newDataOutput();
                 out.writeUTF("ClipboardChunk");
                 out.writeUTF(sessionId);
-                out.writeInt(i);  // 區塊索引
+                out.writeInt(i + 1);  // 區塊索引
                 out.writeInt(chunkLength);  // 區塊大小
                 out.write(chunkData);  // 區塊數據
+
+                plugin.getLogger().info("PluginMessage: " + Constants.CHANNEL + ":" + "ClipboardChunk" + ":" + sessionId + ":" + i + ":" + chunkLength);
 
                 player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
 
@@ -404,14 +419,16 @@ public class ClipboardManager {
      * 請求下載剪貼簿
      */
     public void requestClipboardDownload(Player player) {
-        plugin.getLogger().info("請求下載剪貼簿");
+        plugin.getLogger().info("開始請求下載剪貼簿");
+
+
         try {
             ByteArrayDataOutput out = ByteStreams.newDataOutput();
             out.writeUTF("ClipboardDownload");
             out.writeUTF(player.getUniqueId().toString());
 
             player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
-            player.sendMessage("§e正在從其他伺服器下載剪貼簿...");
+            player.sendMessage("§e開始從Velocity下載剪貼簿...");
 
         } catch (Exception e) {
             plugin.getLogger().severe("請求下載剪貼簿時發生錯誤: " + e.getMessage());
@@ -422,8 +439,8 @@ public class ClipboardManager {
     /**
      * 檢查並下載剪貼簿
      */
-    public boolean checkAndDownloadClipboard(Player player) {
-        plugin.getLogger().info("檢查並下載剪貼簿");
+    public boolean checkOrDownloadClipboard(Player player) {
+        plugin.getLogger().info("檢查或下載剪貼簿");
         try {
             // 檢查本地剪貼簿雜湊值
             String localHash = getLocalHash(player.getUniqueId());
@@ -432,6 +449,12 @@ public class ClipboardManager {
                 requestClipboardDownload(player);
                 return false;
             }
+
+
+
+
+            return true;
+            /*
 
             // 請求遠端剪貼簿雜湊值
             ByteArrayDataOutput out = ByteStreams.newDataOutput();
@@ -443,6 +466,7 @@ public class ClipboardManager {
             // 等待遠端剪貼簿雜湊值
             // 這裡可以添加等待邏輯，例如使用 CountDownLatch 或其他同步機制
 
+
             // 比較本地和遠端剪貼簿雜湊值
             String remoteHash = getRemoteHash(player.getUniqueId());
             if (!localHash.equals(remoteHash)) {
@@ -452,11 +476,33 @@ public class ClipboardManager {
             }
 
             return true;
-
+            */
         } catch (Exception e) {
             plugin.getLogger().severe("檢查並下載剪貼簿時發生錯誤: " + e.getMessage());
             player.sendMessage("§c檢查並下載剪貼簿時發生錯誤！");
             return false;
+        }
+    }
+
+    public boolean isChecked(UUID playerUuid) {
+        return firstCheck.contains(playerUuid);
+    }
+
+    public void check(UUID playerUuid) {
+        firstCheck.add(playerUuid);
+    }
+
+    public void uncheck(UUID playerUuid) {
+        firstCheck.remove(playerUuid);
+    }
+
+    public void startUploadClipboard(Player player) {
+        Clipboard clipboard = plugin.getWorldEditHelper().getPlayerClipboard(player);
+        byte[] serializedClipboard = plugin.getWorldEditHelper().serializeClipboard(clipboard);
+        if (serializedClipboard != null) {
+            String hash = plugin.getClipboardManager().calculateClipboardHash(clipboard);
+            plugin.getClipboardManager().setLocalClipboard(player.getUniqueId(), serializedClipboard, hash);
+            plugin.getClipboardManager().uploadClipboard(player, serializedClipboard);
         }
     }
 

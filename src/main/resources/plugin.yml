@@ -5,3 +5,7 @@ api-version: '1.21'
 depend:
   - WorldEdit
 description: Sync WorldEdit clipboard across servers
+permissions:
+  worldeditsync.sync:
+    description: Sync WorldEdit clipboard across servers
+    default: true
