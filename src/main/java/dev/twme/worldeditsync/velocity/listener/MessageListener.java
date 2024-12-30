@@ -6,6 +6,7 @@ import com.google.common.io.ByteStreams;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.PluginMessageEvent;
 import com.velocitypowered.api.proxy.Player;
+import com.velocitypowered.api.proxy.ServerConnection;
 import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import dev.twme.worldeditsync.common.Constants;
 import dev.twme.worldeditsync.velocity.WorldEditSyncVelocity;
@@ -23,8 +24,21 @@ public class MessageListener {
     }
 
     @Subscribe
-    public void onPluginMessage(PluginMessageEvent event) {
+    public void onPluginMessageFromBackend(PluginMessageEvent event) {
+
+        plugin.getLogger().info("收到插件消息: {}", event.getIdentifier().getId());
         if (!event.getIdentifier().equals(MinecraftChannelIdentifier.from(Constants.CHANNEL))) {
+            return;
+        }
+
+        event.setResult(PluginMessageEvent.ForwardResult.handled());
+
+
+        if (!(event.getSource() instanceof ServerConnection backend)) {
+            return;
+        }
+
+        if (!(event.getSource() instanceof Player)) {
             return;
         }
 
@@ -32,6 +46,9 @@ public class MessageListener {
             ByteArrayDataInput in = ByteStreams.newDataInput(event.getData());
             String subChannel = in.readUTF();
 
+            plugin.getLogger().info("收到插件消息: {}", subChannel);
+
+            
             switch (subChannel) {
                 case "ClipboardUpload":
                     handleClipboardUpload(in);
@@ -76,6 +93,8 @@ public class MessageListener {
                 clipboardManager.getClipboard(UUID.fromString(playerUuid));
 
         if (clipboardData != null) {
+            plugin.getLogger().info("找到剪貼板數據，開始發送給玩家: {}", player.getUsername());
+
             sendClipboardData(player, clipboardData.getData());
         }
     }
@@ -90,6 +109,9 @@ public class MessageListener {
             return;
         }
 
+        plugin.getLogger().info("接收區塊數據 - 會話: {}, 區塊索引: {}, 大小: {}", sessionId, chunkIndex, length);
+
+
         byte[] chunkData = new byte[length];
         in.readFully(chunkData);
 
@@ -97,12 +119,11 @@ public class MessageListener {
     }
 
     private void handleClipboardInfo(ByteArrayDataInput in, PluginMessageEvent event) {
-        if (!(event.getSource() instanceof Player)) {
+        if (!(event.getSource() instanceof Player player)) {
             return;
         }
 
         String playerUuid = in.readUTF();
-        Player player = (Player) event.getSource();
         ClipboardManager.ClipboardData clipboardData =
                 clipboardManager.getClipboard(UUID.fromString(playerUuid));
 
@@ -151,7 +172,15 @@ public class MessageListener {
                             chunkOut.toByteArray()
                     )
             );
+
+            if (i % 10 == 0 || i == totalChunks - 1) {
+                plugin.getLogger().info("發送進度 - 玩家: {}, 會話: {}, 已發送: {}/{} 區塊",
+                    player.getUsername(), sessionId, i + 1, totalChunks);
+            }
         }
+
+        plugin.getLogger().info("完成向玩家 {} 發送剪貼板數據", player.getUsername());
+
     }
 
     private void sendClipboardInfo(Player player, String hash) {

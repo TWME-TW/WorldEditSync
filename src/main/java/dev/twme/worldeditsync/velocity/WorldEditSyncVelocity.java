@@ -13,6 +13,8 @@ import dev.twme.worldeditsync.velocity.listener.MessageListener;
 import dev.twme.worldeditsync.velocity.listener.PlayerListener;
 import org.slf4j.Logger;
 
+import java.util.concurrent.TimeUnit;
+
 @Plugin(
         id = "worldeditsync",
         name = "WorldEditSync",
@@ -65,7 +67,7 @@ public class WorldEditSyncVelocity {
     private void startCleanupTask() {
         server.getScheduler()
                 .buildTask(this, () -> clipboardManager.cleanupExpiredSessions())
-                .repeat(30L, java.util.concurrent.TimeUnit.SECONDS)
+                .repeat(30L, TimeUnit.SECONDS)
                 .schedule();
     }
 

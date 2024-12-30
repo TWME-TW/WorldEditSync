@@ -3,6 +3,7 @@ package dev.twme.worldeditsync.paper.clipboard;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
+import com.sk89q.worldedit.entity.Entity;
 import com.sk89q.worldedit.extent.clipboard.Clipboard;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.world.block.BaseBlock;
@@ -82,6 +83,10 @@ public class ClipboardManager {
             for (BlockVector3 pt : region) {
                 BaseBlock block = clipboard.getFullBlock(pt);
                 contentBuilder.append(block.getAsString());
+            }
+
+            for (Entity entity: clipboard.getEntities()) {
+                contentBuilder.append(entity.toString());
             }
 
 

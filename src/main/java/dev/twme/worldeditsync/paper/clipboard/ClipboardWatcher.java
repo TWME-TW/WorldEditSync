@@ -31,6 +31,8 @@ public class ClipboardWatcher extends BukkitRunnable {
         if (plugin.getClipboardManager().hasClipboardChanged(player, clipboard)) {
             plugin.getLogger().info("偵測到玩家 " + player.getName() + " 的剪貼簿已更新");
 
+
+
             // 序列化並上傳
             byte[] serializedClipboard = plugin.getWorldEditHelper().serializeClipboard(clipboard);
             if (serializedClipboard != null) {

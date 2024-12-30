@@ -23,6 +23,8 @@ public class MessageHandler implements PluginMessageListener {
             return;
         }
 
+        plugin.getLogger().info("收到插件消息: " + channel);
+
         try {
             ByteArrayDataInput in = ByteStreams.newDataInput(message);
             String subChannel = in.readUTF();
@@ -39,6 +41,8 @@ public class MessageHandler implements PluginMessageListener {
     }
 
     private void handleClipboardInfo(Player player, ByteArrayDataInput in) {
+
+        plugin.getLogger().info("處理 ClipboardInfo");
         try {
             String playerUuid = in.readUTF();
             if (!playerUuid.equals(player.getUniqueId().toString())) {
@@ -61,6 +65,8 @@ public class MessageHandler implements PluginMessageListener {
     }
 
     private void handleClipboardDownloadStart(Player player, ByteArrayDataInput in) {
+
+        plugin.getLogger().info("處理 ClipboardDownloadStart");
         try {
             String playerUuid = in.readUTF();
             if (!playerUuid.equals(player.getUniqueId().toString())) {
@@ -85,6 +91,8 @@ public class MessageHandler implements PluginMessageListener {
     }
 
     private void handleClipboardChunk(Player player, ByteArrayDataInput in) {
+
+        plugin.getLogger().info("處理 ClipboardChunk");
         try {
             String sessionId = in.readUTF();
             int chunkIndex = in.readInt();
@@ -119,6 +127,8 @@ public class MessageHandler implements PluginMessageListener {
     }
 
     private void requestClipboardDownload(Player player) {
+
+        plugin.getLogger().info("請求下載剪貼簿");
         try {
             ByteArrayDataOutput out = ByteStreams.newDataOutput();
             out.writeUTF("ClipboardDownload");

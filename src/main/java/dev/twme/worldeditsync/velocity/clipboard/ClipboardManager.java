@@ -1,16 +1,12 @@
 package dev.twme.worldeditsync.velocity.clipboard;
 
-import com.google.common.hash.Hashing;
-import com.sk89q.worldedit.extent.clipboard.Clipboard;
-import com.sk89q.worldedit.math.BlockVector3;
-import com.sk89q.worldedit.world.block.BaseBlock;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import dev.twme.worldeditsync.common.Constants;
+import dev.twme.worldeditsync.common.transfer.TransferSession;
 import dev.twme.worldeditsync.velocity.WorldEditSyncVelocity;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -37,7 +33,7 @@ public class ClipboardManager {
     public void createTransferSession(String sessionId, UUID playerUuid,
                                       int totalChunks, int chunkSize) {
         transferSessions.put(sessionId,
-                new TransferSession(playerUuid, totalChunks, chunkSize));
+                new TransferSession(playerUuid, sessionId, totalChunks, chunkSize));
     }
 
     public void addChunk(String sessionId, int index, byte[] data) {
@@ -65,6 +61,10 @@ public class ClipboardManager {
         if (targetPlayer == null) return;
 
         for (RegisteredServer server : plugin.getServer().getAllServers()) {
+            if (!targetPlayer.getCurrentServer().isPresent()) {
+                // 玩家不在線上
+                return;
+            }
             if (!server.equals(targetPlayer.getCurrentServer().get().getServer())) {
                 // 發送到其他服務器
                 server.sendPluginMessage(
@@ -84,50 +84,6 @@ public class ClipboardManager {
     public void cleanup() {
         clipboardStorage.clear();
         transferSessions.clear();
-    }
-
-    /**
-     * 計算剪貼簿的雜湊值，考慮實際內容而不僅僅是序列化數據
-     */
-    public String calculateClipboardHash(Clipboard clipboard) {
-        if (clipboard == null) return "";
-
-        try {
-            StringBuilder contentBuilder = new StringBuilder();
-
-            // 加入區域大小信息
-            com.sk89q.worldedit.regions.Region region = clipboard.getRegion();
-            contentBuilder.append(region.getWidth())
-                    .append(":")
-                    .append(region.getHeight())
-                    .append(":")
-                    .append(region.getLength())
-                    .append(":");
-
-            // 加入原點信息
-            com.sk89q.worldedit.math.BlockVector3 origin = clipboard.getOrigin();
-            contentBuilder.append(origin.x())
-                    .append(":")
-                    .append(origin.y())
-                    .append(":")
-                    .append(origin.z())
-                    .append(":");
-
-            // 加入方塊數據
-            for (BlockVector3 pt : region) {
-                BaseBlock block = clipboard.getFullBlock(pt);
-                contentBuilder.append(block.getAsString());
-            }
-
-            // 計算雜湊值
-            return Hashing.sha256()
-                    .hashString(contentBuilder.toString(), StandardCharsets.UTF_8)
-                    .toString();
-
-        } catch (Exception e) {
-            plugin.getLogger().warn("計算剪貼簿雜湊值時發生錯誤: {}", e.getMessage());
-            return "";
-        }
     }
 
 

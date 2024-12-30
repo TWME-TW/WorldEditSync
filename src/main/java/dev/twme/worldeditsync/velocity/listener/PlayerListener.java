@@ -36,6 +36,8 @@ public class PlayerListener {
                     MinecraftChannelIdentifier.from(Constants.CHANNEL),
                     out.toByteArray()
             );
+
+            plugin.getLogger().info("發送剪貼簿信息到新服務器: " + event.getPlayer().getUniqueId());
         }
     }
 }
