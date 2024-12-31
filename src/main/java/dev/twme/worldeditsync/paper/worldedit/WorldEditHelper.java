@@ -44,7 +44,7 @@ public class WorldEditHelper {
 
             deserializeClipboard(bos.toByteArray());
 
-            return bos.toByteArray();
+            return compress(bos.toByteArray());
         } catch (IOException e) {
             plugin.getLogger().warning("Failed to serialize clipboard: " + e.getMessage());
             return null;
@@ -53,9 +53,12 @@ public class WorldEditHelper {
 
     @Nullable
     public Clipboard deserializeClipboard(byte[] data) {
-        try (ByteArrayInputStream bis = new ByteArrayInputStream(data)) {
+        try (ByteArrayInputStream bis = new ByteArrayInputStream(decompress(data))) {
             try (ClipboardReader reader = BuiltInClipboardFormat.SPONGE_V3_SCHEMATIC.getReader(bis)) {
                 return reader.read();
+            } catch (IOException e) {
+                plugin.getLogger().warning("Failed to deserialize clipboard to SPONGE_V3_SCHEMATIC: " + e.getMessage());
+                return null;
             }
 
         } catch (IOException e) {

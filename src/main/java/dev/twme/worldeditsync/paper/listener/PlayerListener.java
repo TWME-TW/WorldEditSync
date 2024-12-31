@@ -4,6 +4,7 @@ import dev.twme.worldeditsync.paper.WorldEditSyncPaper;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
 public class PlayerListener implements Listener {
@@ -19,5 +20,16 @@ public class PlayerListener implements Listener {
         Player player = event.getPlayer();
 
         plugin.getClipboardManager().uncheck(player.getUniqueId());
+    }
+
+    @EventHandler
+    public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
+        Player player = event.getPlayer();
+        String message = event.getMessage();
+        String[] args = message.split(" ");
+
+        if (args[0].equalsIgnoreCase("//copy") || args[0].equalsIgnoreCase("//cut")) {
+            plugin.getClipboardManager().check(player.getUniqueId());
+        }
     }
 }

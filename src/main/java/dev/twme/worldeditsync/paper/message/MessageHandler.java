@@ -118,6 +118,8 @@ public class MessageHandler implements PluginMessageListener {
             try {
                 chunkData = new byte[length];
                 in.readFully(chunkData);
+
+
             } catch (Exception e) {
                 plugin.getLogger().warning("讀取區塊數據失敗: " + e.getMessage());
                 return;
