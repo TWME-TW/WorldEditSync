@@ -175,40 +175,54 @@ public class MessageListener {
                 )
         );
 
-        // 發送數據塊
-        for (int i = 0; i < totalChunks; i++) {
-            int start = i * Constants.DEFAULT_CHUNK_SIZE;
-            int end = Math.min(start + Constants.DEFAULT_CHUNK_SIZE, data.length);
-            byte[] chunk = new byte[end - start];
-            System.arraycopy(data, start, chunk, 0, chunk.length);
+        // 發送數據塊 異步
 
-            ByteArrayDataOutput chunkOut = ByteStreams.newDataOutput();
-            chunkOut.writeUTF("ClipboardChunk");
-            chunkOut.writeUTF(sessionId);
-            chunkOut.writeInt(i + 1);
-            chunkOut.writeInt(chunk.length);
-            chunkOut.write(chunk);
+        plugin.getServer().getScheduler().buildTask(plugin, () -> {
+            String currentServer = player.getCurrentServer().map(serverConnection -> serverConnection.getServerInfo().getName()).orElse("null");
+            for (int i = 0; i < totalChunks; i++) {
+                if (currentServer.equals("null")) {
+                    return;
+                }
+
+                String lastServer = player.getCurrentServer().map(serverConnection -> serverConnection.getServerInfo().getName()).orElse("null");
+                if (!lastServer.equals(currentServer)) {
+                    return;
+                }
+
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    e.fillInStackTrace();
+                }
+                int start = i * Constants.DEFAULT_CHUNK_SIZE;
+                int end = Math.min(start + Constants.DEFAULT_CHUNK_SIZE, data.length);
+                byte[] chunk = new byte[end - start];
+                System.arraycopy(data, start, chunk, 0, chunk.length);
+
+                ByteArrayDataOutput chunkOut = ByteStreams.newDataOutput();
+                chunkOut.writeUTF("ClipboardChunk");
+                chunkOut.writeUTF(sessionId);
+                chunkOut.writeInt(i + 1);
+                chunkOut.writeInt(chunk.length);
+                chunkOut.write(chunk);
 
 //            player.sendPluginMessage(
 //                MinecraftChannelIdentifier.from(Constants.CHANNEL),
 //                chunkOut.toByteArray()
 //            );
 
-             player.getCurrentServer().ifPresent(server ->
-                     server.sendPluginMessage(
-                             MinecraftChannelIdentifier.from(Constants.CHANNEL),
-                             chunkOut.toByteArray()
-                     )
-             );
-
-            if (i % 10 == 0 || i == totalChunks - 1) {
-                // plugin.getLogger().info("發送進度 - 玩家: {}, 會話: {}, 已發送: {}/{} 區塊", player.getUsername(), sessionId, i + 1, totalChunks);
+                player.getCurrentServer().ifPresent(server ->
+                        server.sendPluginMessage(
+                                MinecraftChannelIdentifier.from(Constants.CHANNEL),
+                                chunkOut.toByteArray()
+                        )
+                );
             }
-        }
+            plugin.getLogger().info("Finished sending clipboard data to player: {} Session: {}", player.getUsername(), sessionId);
 
-        plugin.getLogger().info("Finished sending clipboard data to player: {} Session: {}", player.getUsername(), sessionId);
+        }).schedule();
 
-        // plugin.getLogger().info("完成向玩家 {} 發送剪貼板數據", player.getUsername());
+
     }
 
     private void sendClipboardInfo(Player player, String hash) {

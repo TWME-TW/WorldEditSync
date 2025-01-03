@@ -37,6 +37,7 @@ public class ClipboardManager {
     }
 
     public void addChunk(String sessionId, int index, byte[] data) {
+
         TransferSession session = transferSessions.get(sessionId);
         if (session != null) {
             // plugin.getLogger().info("Add chunk: {}", index);

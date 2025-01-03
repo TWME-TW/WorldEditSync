@@ -1,26 +1,17 @@
 package dev.twme.worldeditsync.paper.clipboard;
 
-import com.google.common.hash.Hashing;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
-import com.sk89q.worldedit.entity.Entity;
 import com.sk89q.worldedit.extent.clipboard.Clipboard;
-import com.sk89q.worldedit.math.BlockVector3;
-import com.sk89q.worldedit.world.block.BaseBlock;
 import dev.twme.worldeditsync.common.Constants;
 import dev.twme.worldeditsync.common.transfer.TransferSession;
 import dev.twme.worldeditsync.paper.WorldEditSyncPaper;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.zip.GZIPInputStream;
-import java.util.zip.GZIPOutputStream;
 
 public class ClipboardManager {
     private final WorldEditSyncPaper plugin;
@@ -64,48 +55,7 @@ public class ClipboardManager {
     public String calculateClipboardHash(Clipboard clipboard) {
         if (clipboard == null) return "";
 
-        try {
-            StringBuilder contentBuilder = new StringBuilder();
-
-            // 加入區域大小信息
-            com.sk89q.worldedit.regions.Region region = clipboard.getRegion();
-            contentBuilder.append(region.getWidth())
-                    .append(":")
-                    .append(region.getHeight())
-                    .append(":")
-                    .append(region.getLength())
-                    .append(":");
-
-            // 加入原點信息
-            BlockVector3 origin = clipboard.getOrigin();
-            contentBuilder.append(origin.x())
-                    .append(":")
-                    .append(origin.y())
-                    .append(":")
-                    .append(origin.z())
-                    .append(":");
-
-            // 加入方塊數據
-            for (BlockVector3 pt : region) {
-                BaseBlock block = clipboard.getFullBlock(pt);
-                contentBuilder.append(block.getAsString());
-            }
-
-            for (Entity entity: clipboard.getEntities()) {
-                contentBuilder.append(entity.toString());
-            }
-
-
-
-            // 計算雜湊值
-            return Hashing.sha256()
-                    .hashString(contentBuilder.toString(), StandardCharsets.UTF_8)
-                    .toString();
-
-        } catch (Exception e) {
-            plugin.getLogger().warning("An error occurred while calculating clipboard hash: " + e.getMessage());
-            return "";
-        }
+        return String.valueOf(clipboard.hashCode());
     }
 
     /**
@@ -139,6 +89,8 @@ public class ClipboardManager {
 
         // 添加區塊數據
         session.addChunk(chunkIndex, chunkData);
+
+        player.sendActionBar(mm.deserialize("<blue>Receiving clipboard... <gray>(" + session.getChunkCount() + "</gray>/<yellow>" + session.getTotalChunks() + "</yellow>)</blue>"));
 
         // 檢查是否完成
         if (session.isComplete()) {
@@ -183,6 +135,7 @@ public class ClipboardManager {
     }
 
     public void uploadClipboard(Player player, byte[] data) {
+
         try {
             // 生成一個新的會話ID
             String sessionId = UUID.randomUUID().toString();
@@ -212,15 +165,19 @@ public class ClipboardManager {
             out.writeInt(totalChunks);
             out.writeInt(Constants.DEFAULT_CHUNK_SIZE);
 
-            // plugin.getLogger().info("PluginMessage: " + Constants.CHANNEL + ":" + "ClipboardUpload" + ":" + player.getUniqueId() + ":" + sessionId + ":" + totalChunks + ":" + Constants.DEFAULT_CHUNK_SIZE);
-
             player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
 
             // 發送區塊數據
-            sendChunks(player, sessionId, data, totalChunks);
+
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                sendChunks(player, sessionId, data, totalChunks);
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    plugin.getLogger().info("Uploaded clipboard for player: " + player.getName() + ", session: " + sessionId);
+                });
+            });
+            // sendChunks(player, sessionId, data, totalChunks);
 
             // player.sendMessage("§e正在上傳剪貼簿...");
-            plugin.getLogger().info("Uploaded clipboard for player: " + player.getName() + ", session: " + sessionId);
 
         } catch (Exception e) {
             plugin.getLogger().severe("上傳剪貼簿時發生錯誤: " + e.getMessage());
@@ -229,6 +186,13 @@ public class ClipboardManager {
     }
 
     private void sendChunks(Player player, String sessionId, byte[] data, int totalChunks) {
+        //wait 10ms
+        try {
+            Thread.sleep(10);
+        } catch (InterruptedException e) {
+            e.fillInStackTrace();
+        }
+
         try {
             for (int i = 0; i < totalChunks; i++) {
                 // 計算當前區塊的起始和結束位置
@@ -290,7 +254,6 @@ public class ClipboardManager {
 
         // 如果玩家沒有暫存的剪貼簿數據，視為有變化
         if (!clipboardCache.containsKey(player.getUniqueId())) {
-            // plugin.getLogger().warning("玩家沒有暫存的剪貼簿數據");
             return true;
         }
 
@@ -302,21 +265,10 @@ public class ClipboardManager {
 
             // 如果任一雜湊值為空，視為有變化
             if (currentHash.isEmpty() || storedHash.isEmpty()) {
-                // plugin.getLogger().warning("雜湊值為空 - 當前: " + currentHash + ", 儲存: " + storedHash);
                 return true;
             }
 
-            // 比較雜湊值
-            boolean changed = !currentHash.equals(storedHash);
-
-            // 添加調試日誌
-            if (changed) {
-//                plugin.getLogger().warning("剪貼簿雜湊值不同:");
-//                plugin.getLogger().warning("當前: " + currentHash);
-//                plugin.getLogger().warning("儲存: " + storedHash);
-            }
-
-            return changed;
+            return !currentHash.equals(storedHash);
 
         } catch (Exception e) {
             plugin.getLogger().warning("An error occurred while checking clipboard changes: " + e.getMessage());
