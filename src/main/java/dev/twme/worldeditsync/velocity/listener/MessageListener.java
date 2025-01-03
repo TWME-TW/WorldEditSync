@@ -26,24 +26,24 @@ public class MessageListener {
 
     @Subscribe
     public void onPluginMessageFromBackend(PluginMessageEvent event) {
-        plugin.getLogger().info("1");
+
         if (!event.getIdentifier().equals(MinecraftChannelIdentifier.from(Constants.CHANNEL))) {
             return;
         }
-        plugin.getLogger().info("2");
+
         event.setResult(PluginMessageEvent.ForwardResult.handled());
 
-        plugin.getLogger().info("3");
+
         if (!(event.getSource() instanceof ServerConnection backend)) {
             return;
         }
-        plugin.getLogger().info("4");
+
 
         try {
             ByteArrayDataInput in = ByteStreams.newDataInput(event.getData());
             String subChannel = in.readUTF();
 
-            plugin.getLogger().info("收到插件消息(子通道): {}", subChannel);
+            // plugin.getLogger().info("收到插件消息(子通道): {}", subChannel);
 
             
             switch (subChannel) {
@@ -81,7 +81,7 @@ public class MessageListener {
     }
 
     private void handleClipboardDownload(ByteArrayDataInput in, PluginMessageEvent event) {
-        plugin.getLogger().info("處理 ClipboardDownload");
+        // plugin.getLogger().info("處理 ClipboardDownload");
         String playerUuid = in.readUTF();
         Player player;
 
@@ -96,11 +96,11 @@ public class MessageListener {
                 clipboardManager.getClipboard(UUID.fromString(playerUuid));
 
         if (clipboardData != null) {
-            plugin.getLogger().info("找到剪貼板資料，開始發送給玩家: {}", player.getUsername());
+            // plugin.getLogger().info("找到剪貼板資料，開始發送給玩家: {}", player.getUsername());
 
             sendClipboardData(player, clipboardData.getData());
         } else {
-            plugin.getLogger().info("未找到剪貼板資料，請求下載失敗: {}", player.getUsername());
+            // plugin.getLogger().info("未找到剪貼板資料，請求下載失敗: {}", player.getUsername());
         }
     }
 
@@ -116,7 +116,7 @@ public class MessageListener {
             return;
         }
 
-        plugin.getLogger().info("接收區塊數據 - 會話: {}, 區塊索引: {}, 大小: {}", sessionId, chunkIndex, length);
+        // plugin.getLogger().info("接收區塊數據 - 會話: {}, 區塊索引: {}, 大小: {}", sessionId, chunkIndex, length);
 
 
         byte[] chunkData = new byte[length];
@@ -160,7 +160,7 @@ public class MessageListener {
 
 
 
-        plugin.getLogger().info("開始向玩家 {} 發送剪貼板數據", player.getUsername());
+        // plugin.getLogger().info("開始向玩家 {} 發送剪貼板數據", player.getUsername());
         // player.getCurrentServer().ifPresent(server ->
         //         server.sendPluginMessage(
         //                 MinecraftChannelIdentifier.from(Constants.CHANNEL),
@@ -202,13 +202,13 @@ public class MessageListener {
              );
 
             if (i % 10 == 0 || i == totalChunks - 1) {
-                plugin.getLogger().info("發送進度 - 玩家: {}, 會話: {}, 已發送: {}/{} 區塊",
-                    player.getUsername(), sessionId, i + 1, totalChunks);
+                // plugin.getLogger().info("發送進度 - 玩家: {}, 會話: {}, 已發送: {}/{} 區塊", player.getUsername(), sessionId, i + 1, totalChunks);
             }
         }
 
-        plugin.getLogger().info("完成向玩家 {} 發送剪貼板數據", player.getUsername());
+        plugin.getLogger().info("Finished sending clipboard data to player: {} Session: {}", player.getUsername(), sessionId);
 
+        // plugin.getLogger().info("完成向玩家 {} 發送剪貼板數據", player.getUsername());
     }
 
     private void sendClipboardInfo(Player player, String hash) {

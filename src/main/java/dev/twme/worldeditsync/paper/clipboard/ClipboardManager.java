@@ -10,6 +10,7 @@ import com.sk89q.worldedit.world.block.BaseBlock;
 import dev.twme.worldeditsync.common.Constants;
 import dev.twme.worldeditsync.common.transfer.TransferSession;
 import dev.twme.worldeditsync.paper.WorldEditSyncPaper;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.entity.Player;
 
 import java.io.ByteArrayInputStream;
@@ -26,6 +27,7 @@ public class ClipboardManager {
     private final Map<UUID, ClipboardData> clipboardCache;
     private final Map<String, TransferSession> activeSessions;
     private final Set<UUID> firstCheck = new HashSet<>();
+    private final MiniMessage mm = MiniMessage.miniMessage();
 
     public ClipboardManager(WorldEditSyncPaper plugin) {
         this.plugin = plugin;
@@ -101,7 +103,7 @@ public class ClipboardManager {
                     .toString();
 
         } catch (Exception e) {
-            plugin.getLogger().warning("計算剪貼簿雜湊值時發生錯誤: " + e.getMessage());
+            plugin.getLogger().warning("An error occurred while calculating clipboard hash: " + e.getMessage());
             return "";
         }
     }
@@ -125,23 +127,21 @@ public class ClipboardManager {
     public void handleChunkData(Player player, String sessionId, int chunkIndex, byte[] chunkData) {
         TransferSession session = activeSessions.get(sessionId);
         if (session == null) {
-            plugin.getLogger().warning("找不到會話: " + sessionId);
+            plugin.getLogger().warning("Cannot find active session: " + sessionId);
             return;
         }
 
         // 驗證玩家
         if (!session.getPlayerUuid().equals(player.getUniqueId())) {
-            plugin.getLogger().warning("玩家UUID不匹配");
+            plugin.getLogger().warning("Player's UUID does not match: " + player.getName());
             return;
         }
 
         // 添加區塊數據
         session.addChunk(chunkIndex, chunkData);
-        plugin.getLogger().info("添加區塊數據 - 會話: " + sessionId + ", 索引: " + chunkIndex);
 
         // 檢查是否完成
         if (session.isComplete()) {
-            plugin.getLogger().info("會話 " + sessionId + " 已完成");
             handleCompleteTransfer(player, session);
             activeSessions.remove(sessionId);
         }
@@ -154,7 +154,7 @@ public class ClipboardManager {
         try {
             byte[] fullData = session.assembleData();
             if (fullData == null) {
-                plugin.getLogger().warning("無法組裝完整數據");
+                plugin.getLogger().warning("Cannot assemble data: " + session.getSessionId());
                 return;
             }
 
@@ -167,13 +167,17 @@ public class ClipboardManager {
 
             plugin.getWorldEditHelper().setPlayerClipboard(player, clipboard);
 
-            plugin.getLogger().info("玩家 " + player.getName() + " 的剪貼簿已同步完成");
-            player.sendMessage("§a剪貼簿同步完成！");
+            //player.sendMessage("§a剪貼簿同步完成！");
+            player.sendActionBar(mm.deserialize("<green>Clipboard synchronized!</green>"));
 
+            plugin.getLogger().info(String.format(
+                    "Data received - Player: %s, Session: %s, Chunk: %d, Size: %d",
+                    player.getName(), session.getSessionId(), session.getTotalChunks(), session.getChunkSize()
+            ));
             check(player.getUniqueId());
         } catch (Exception e) {
-            plugin.getLogger().severe("完成傳輸時發生錯誤: " + e.getMessage());
-            player.sendMessage("§c同步剪貼簿時發生錯誤！");
+            plugin.getLogger().severe("An error occurred while synchronizing clipboard: " + e.getMessage());
+            player.sendMessage("§cAn error occurred while synchronizing clipboard!");
             e.printStackTrace();
         }
     }
@@ -188,15 +192,15 @@ public class ClipboardManager {
 
             // 檢查區塊數量是否超過限制
             if (totalChunks > Constants.MAX_CHUNKS) {
-                plugin.getLogger().warning("剪貼簿過大，無法上傳: " + player.getName());
-                player.sendMessage("§c剪貼簿太大，無法同步！");
+                plugin.getLogger().warning("The clipboard is too large to sync: " + player.getName());
+                player.sendMessage("§cThe clipboard is too large to sync!");
                 return;
             }
 
             // 在上傳之前檢查並下載剪貼簿
             if (!checkOrDownloadClipboard(player)) {
-                plugin.getLogger().warning("在上傳之前檢查或下載剪貼簿失敗: " + player.getName());
-                player.sendMessage("§c在上傳之前檢查或下載剪貼簿失敗！");
+                plugin.getLogger().warning("Failed to check or download clipboard before upload: " + player.getName());
+                player.sendActionBar(mm.deserialize("Failed to check or download clipboard before upload"));
                 return;
             }
 
@@ -208,14 +212,15 @@ public class ClipboardManager {
             out.writeInt(totalChunks);
             out.writeInt(Constants.DEFAULT_CHUNK_SIZE);
 
-            plugin.getLogger().info("PluginMessage: " + Constants.CHANNEL + ":" + "ClipboardUpload" + ":" + player.getUniqueId() + ":" + sessionId + ":" + totalChunks + ":" + Constants.DEFAULT_CHUNK_SIZE);
+            // plugin.getLogger().info("PluginMessage: " + Constants.CHANNEL + ":" + "ClipboardUpload" + ":" + player.getUniqueId() + ":" + sessionId + ":" + totalChunks + ":" + Constants.DEFAULT_CHUNK_SIZE);
 
             player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
 
             // 發送區塊數據
             sendChunks(player, sessionId, data, totalChunks);
 
-            player.sendMessage("§e正在上傳剪貼簿...");
+            // player.sendMessage("§e正在上傳剪貼簿...");
+            plugin.getLogger().info("Uploaded clipboard for player: " + player.getName() + ", session: " + sessionId);
 
         } catch (Exception e) {
             plugin.getLogger().severe("上傳剪貼簿時發生錯誤: " + e.getMessage());
@@ -243,23 +248,29 @@ public class ClipboardManager {
                 out.writeInt(chunkLength);  // 區塊大小
                 out.write(chunkData);  // 區塊數據
 
-                plugin.getLogger().info("PluginMessage: " + Constants.CHANNEL + ":" + "ClipboardChunk" + ":" + sessionId + ":" + i + ":" + chunkLength);
+                // plugin.getLogger().info("PluginMessage: " + Constants.CHANNEL + ":" + "ClipboardChunk" + ":" + sessionId + ":" + i + ":" + chunkLength);
 
                 player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
 
-                plugin.getLogger().warning(String.format(
-                        "發送區塊 %d/%d, 大小: %d bytes",
-                        i + 1, totalChunks, chunkLength
-                ));
+                if (i + 1 < totalChunks) {
+                    player.sendActionBar(mm.deserialize("<blue>Uploading clipboard... <gray>(" + (i + 1) + "</gray>/<yellow>" + totalChunks + "</yellow>)</blue>"));
+                } else {
+                    player.sendActionBar(mm.deserialize("<green>Clipboard uploaded!</green>"));
+                }
+
+//                plugin.getLogger().warning(String.format(
+//                        "發送區塊 %d/%d, 大小: %d bytes",
+//                        i + 1, totalChunks, chunkLength
+//                ));
             }
 
-            plugin.getLogger().info(String.format(
-                    "完成發送剪貼簿，共 %d 個區塊",
-                    totalChunks
-            ));
+//            plugin.getLogger().info(String.format(
+//                    "完成發送剪貼簿，共 %d 個區塊",
+//                    totalChunks
+//            ));
 
         } catch (Exception e) {
-            plugin.getLogger().severe("發送區塊數據時發生錯誤: " + e.getMessage());
+            plugin.getLogger().severe("An error occurred while sending chunks: " + e.getMessage());
             throw e;  // 讓上層方法處理錯誤
         }
     }
@@ -273,13 +284,13 @@ public class ClipboardManager {
     public boolean hasClipboardChanged(Player player, Clipboard currentClipboard) {
         // 如果當前剪貼簿為空，視為無變化
         if (currentClipboard == null) {
-            plugin.getLogger().warning("當前剪貼簿為空");
+            // plugin.getLogger().warning("當前剪貼簿為空");
             return false;
         }
 
         // 如果玩家沒有暫存的剪貼簿數據，視為有變化
         if (!clipboardCache.containsKey(player.getUniqueId())) {
-            plugin.getLogger().warning("玩家沒有暫存的剪貼簿數據");
+            // plugin.getLogger().warning("玩家沒有暫存的剪貼簿數據");
             return true;
         }
 
@@ -291,7 +302,7 @@ public class ClipboardManager {
 
             // 如果任一雜湊值為空，視為有變化
             if (currentHash.isEmpty() || storedHash.isEmpty()) {
-                plugin.getLogger().warning("雜湊值為空 - 當前: " + currentHash + ", 儲存: " + storedHash);
+                // plugin.getLogger().warning("雜湊值為空 - 當前: " + currentHash + ", 儲存: " + storedHash);
                 return true;
             }
 
@@ -300,15 +311,15 @@ public class ClipboardManager {
 
             // 添加調試日誌
             if (changed) {
-                plugin.getLogger().warning("剪貼簿雜湊值不同:");
-                plugin.getLogger().warning("當前: " + currentHash);
-                plugin.getLogger().warning("儲存: " + storedHash);
+//                plugin.getLogger().warning("剪貼簿雜湊值不同:");
+//                plugin.getLogger().warning("當前: " + currentHash);
+//                plugin.getLogger().warning("儲存: " + storedHash);
             }
 
             return changed;
 
         } catch (Exception e) {
-            plugin.getLogger().warning("檢查剪貼簿變化時發生錯誤: " + e.getMessage());
+            plugin.getLogger().warning("An error occurred while checking clipboard changes: " + e.getMessage());
             // 發生錯誤時，為安全起見返回 true
             return true;
         }
@@ -341,7 +352,7 @@ public class ClipboardManager {
 
             return true;
         } catch (Exception e) {
-            plugin.getLogger().warning("比較剪貼簿數據時發生錯誤: " + e.getMessage());
+            plugin.getLogger().warning("An error occurred while comparing clipboard data: " + e.getMessage());
             return false;
         }
     }
@@ -359,7 +370,7 @@ public class ClipboardManager {
             }
             return calculateClipboardHash(clipboard);
         } catch (Exception e) {
-            plugin.getLogger().warning("獲取當前剪貼簿雜湊值時發生錯誤: " + e.getMessage());
+            plugin.getLogger().warning("An error occurred while getting current clipboard hash: " + e.getMessage());
             return "";
         }
     }
@@ -391,7 +402,7 @@ public class ClipboardManager {
      * 請求下載剪貼簿
      */
     public void requestClipboardDownload(Player player) {
-        plugin.getLogger().info("開始請求下載剪貼簿");
+        // plugin.getLogger().info("開始請求下載剪貼簿");
 
 
         try {
@@ -400,11 +411,11 @@ public class ClipboardManager {
             out.writeUTF(player.getUniqueId().toString());
 
             player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
-            player.sendMessage("§e開始從Velocity下載剪貼簿...");
+            // player.sendMessage("§e開始從Velocity下載剪貼簿...");
 
         } catch (Exception e) {
-            plugin.getLogger().severe("請求下載剪貼簿時發生錯誤: " + e.getMessage());
-            player.sendMessage("§c請求下載剪貼簿時發生錯誤！");
+            plugin.getLogger().severe("Requesting clipboard download failed: " + e.getMessage());
+            // player.sendMessage("§c請求下載剪貼簿時發生錯誤！");
         }
     }
 
@@ -412,7 +423,7 @@ public class ClipboardManager {
      * 檢查並下載剪貼簿
      */
     public boolean checkOrDownloadClipboard(Player player) {
-        plugin.getLogger().info("檢查或下載剪貼簿");
+        // plugin.getLogger().info("檢查或下載剪貼簿");
         try {
             // 檢查本地剪貼簿雜湊值
             String localHash = getLocalHash(player.getUniqueId());
@@ -450,8 +461,8 @@ public class ClipboardManager {
             return true;
             */
         } catch (Exception e) {
-            plugin.getLogger().severe("檢查並下載剪貼簿時發生錯誤: " + e.getMessage());
-            player.sendMessage("§c檢查並下載剪貼簿時發生錯誤！");
+            plugin.getLogger().severe("An error occurred while checking and downloading clipboard: " + e.getMessage());
+            player.sendActionBar(mm.deserialize("An error occurred while checking and downloading clipboard"));
             return false;
         }
     }

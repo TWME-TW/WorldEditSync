@@ -40,7 +40,7 @@ public class PlayerListener {
                         out.toByteArray()
                 );
 
-                plugin.getLogger().info("發送剪貼簿信息到新服務器: {}", event.getPlayer().getUniqueId());
+                // plugin.getLogger().info("發送剪貼簿信息到新服務器: {}", event.getPlayer().getUniqueId());
             } else {
 
                 // 請求從Velocity下載剪貼簿
@@ -62,7 +62,7 @@ public class PlayerListener {
                 out.toByteArray()
         );
 
-        plugin.getLogger().info("提醒 Paper Velocity 上沒有剪貼簿資料: {}", event.getPlayer().getUniqueId());
+        // plugin.getLogger().info("提醒 Paper Velocity 上沒有剪貼簿資料: {}", event.getPlayer().getUniqueId());
     }
 
 
@@ -77,6 +77,6 @@ public class PlayerListener {
                 out.toByteArray()
         );
 
-        plugin.getLogger().info("要求 Paper 從 Velocity 下載剪貼簿: {}", event.getPlayer().getUniqueId());
+        // plugin.getLogger().info("要求 Paper 從 Velocity 下載剪貼簿: {}", event.getPlayer().getUniqueId());
     }
 }

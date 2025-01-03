@@ -1,5 +1,5 @@
 name: WorldEditSync
-version: '0.0.1'
+version: '${project.version}'
 main: dev.twme.worldeditsync.paper.WorldEditSyncPaper
 api-version: '1.21'
 depend:

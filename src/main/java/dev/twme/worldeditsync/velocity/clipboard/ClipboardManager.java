@@ -39,15 +39,14 @@ public class ClipboardManager {
     public void addChunk(String sessionId, int index, byte[] data) {
         TransferSession session = transferSessions.get(sessionId);
         if (session != null) {
-            plugin.getLogger().info("Add chunk: {}", index);
+            // plugin.getLogger().info("Add chunk: {}", index);
 
             session.addChunk(index, data);
 
-            plugin.getLogger().info("Chunk size: {}, Total chunks: {}",
-                    session.getChunkSize(), session.getTotalChunks());
+            // plugin.getLogger().info("Chunk size: {}, Total chunks: {}", session.getChunkSize(), session.getTotalChunks());
 
             if (session.isComplete()) {
-                plugin.getLogger().info("Session is complete: {}", sessionId);
+                // plugin.getLogger().info("Session is complete: {}", sessionId);
                 byte[] fullData = session.assembleData();
                 UUID playerUuid = session.getPlayerUuid();
                 String hash = calculateHash(fullData);
@@ -56,11 +55,11 @@ public class ClipboardManager {
                     plugin.getLogger().warn("Failed to assemble data: {}", sessionId);
                     return;
                 }
-
-                // 儲存並廣播到其他服務器
+                plugin.getLogger().info("Finished transferring clipboard data: {}", sessionId);
+                // 儲存剪貼簿
                 storeClipboard(playerUuid, fullData, hash);
 
-                //
+                // 儲存並廣播到其他服務器
                 broadcastClipboardUpdate(playerUuid, fullData);
 
                 // 清理會話

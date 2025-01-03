@@ -2,12 +2,14 @@ package dev.twme.worldeditsync.paper.clipboard;
 
 import com.sk89q.worldedit.extent.clipboard.Clipboard;
 import dev.twme.worldeditsync.paper.WorldEditSyncPaper;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
 public class ClipboardWatcher extends BukkitRunnable {
     private final WorldEditSyncPaper plugin;
     private final ClipboardManager clipboardManager;
+    private final MiniMessage mm = MiniMessage.miniMessage();
 
     public ClipboardWatcher(WorldEditSyncPaper plugin) {
         this.plugin = plugin;
@@ -40,8 +42,8 @@ public class ClipboardWatcher extends BukkitRunnable {
 
         // 使用新的判斷方法
         if (plugin.getClipboardManager().hasClipboardChanged(player, clipboard)) {
-            plugin.getLogger().info("偵測到玩家 " + player.getName() + " 的剪貼簿已更新");
-
+            // plugin.getLogger().info("偵測到玩家 " + player.getName() + " 的剪貼簿已更新");
+            player.sendActionBar(mm.deserialize("<green>Detect clipboard change, uploading...</green>"));
             // 序列化並上傳
             byte[] serializedClipboard = plugin.getWorldEditHelper().serializeClipboard(clipboard);
             if (serializedClipboard != null) {
