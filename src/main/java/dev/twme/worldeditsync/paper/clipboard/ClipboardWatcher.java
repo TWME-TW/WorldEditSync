@@ -22,7 +22,7 @@ public class ClipboardWatcher extends BukkitRunnable {
 
 
             if (!(player.hasPermission("worldeditsync.sync"))) {
-                plugin.getLogger().info("玩家 " + player.getName() + " 沒有權限");
+                // plugin.getLogger().info("玩家 " + player.getName() + " 沒有權限");
                 continue;
             }
 
