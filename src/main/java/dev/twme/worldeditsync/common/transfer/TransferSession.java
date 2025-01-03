@@ -43,7 +43,7 @@ public class TransferSession {
 
         byte[] result = new byte[totalChunks * chunkSize];
         for (int i = 0; i < totalChunks; i++) {
-            byte[] chunk = chunks.get(i);
+            byte[] chunk = chunks.get(i + 1);
             if (chunk != null) {
                 System.arraycopy(chunk, 0, result, i * chunkSize, chunk.length);
             }

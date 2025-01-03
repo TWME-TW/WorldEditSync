@@ -42,7 +42,7 @@ public class WorldEditHelper {
                 writer.write(clipboard);
             }
 
-            deserializeClipboard(bos.toByteArray());
+            // deserializeClipboard(bos.toByteArray());
 
             return bos.toByteArray();
         } catch (IOException e) {
@@ -56,6 +56,9 @@ public class WorldEditHelper {
         try (ByteArrayInputStream bis = new ByteArrayInputStream(data)) {
             try (ClipboardReader reader = BuiltInClipboardFormat.SPONGE_V3_SCHEMATIC.getReader(bis)) {
                 return reader.read();
+            } catch (IOException e) {
+                plugin.getLogger().warning("Failed to deserialize clipboard to SPONGE_V3_SCHEMATIC: " + e.getMessage());
+                return null;
             }
 
         } catch (IOException e) {

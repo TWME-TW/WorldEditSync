@@ -174,6 +174,7 @@ public class ClipboardManager {
         } catch (Exception e) {
             plugin.getLogger().severe("完成傳輸時發生錯誤: " + e.getMessage());
             player.sendMessage("§c同步剪貼簿時發生錯誤！");
+            e.printStackTrace();
         }
     }
 
@@ -260,35 +261,6 @@ public class ClipboardManager {
         } catch (Exception e) {
             plugin.getLogger().severe("發送區塊數據時發生錯誤: " + e.getMessage());
             throw e;  // 讓上層方法處理錯誤
-        }
-    }
-
-    /**
-     * 處理接收到的剪貼簿數據
-     */
-    public void handleClipboardData(Player player, byte[] data) {
-        try {
-            // 反序列化剪貼簿數據
-            Clipboard clipboard = plugin.getWorldEditHelper().deserializeClipboard(data);
-            if (clipboard == null) {
-                throw new IllegalStateException("無法反序列化剪貼簿數據");
-            }
-
-            // 計算並存儲雜湊值
-            String hash = calculateClipboardHash(clipboard);
-            setLocalClipboard(player.getUniqueId(), data, hash);
-
-            // 設置玩家的剪貼簿
-            plugin.getWorldEditHelper().setPlayerClipboard(player, clipboard);
-
-            plugin.getLogger().info(String.format(
-                    "已設置玩家 %s 的剪貼簿 (雜湊值: %s)",
-                    player.getName(), hash
-            ));
-
-        } catch (Exception e) {
-            plugin.getLogger().severe("處理剪貼簿數據時發生錯誤: " + e.getMessage());
-            throw new RuntimeException("處理剪貼簿數據失敗", e);
         }
     }
 
