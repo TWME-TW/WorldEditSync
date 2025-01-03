@@ -52,8 +52,15 @@ public class ClipboardManager {
                 UUID playerUuid = session.getPlayerUuid();
                 String hash = calculateHash(fullData);
 
+                if (fullData == null) {
+                    plugin.getLogger().warn("Failed to assemble data: {}", sessionId);
+                    return;
+                }
+
                 // 儲存並廣播到其他服務器
                 storeClipboard(playerUuid, fullData, hash);
+
+                //
                 broadcastClipboardUpdate(playerUuid, fullData);
 
                 // 清理會話
