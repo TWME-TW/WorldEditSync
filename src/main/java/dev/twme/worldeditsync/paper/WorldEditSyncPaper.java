@@ -22,7 +22,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
             if (this.getPluginMeta().getVersion().equals(version)) {
                 getLogger().info("There is not a new update available.");
             } else {
-                getLogger().info("There is a new update available.");
+                getLogger().info("There is a new update available. Download it here: https://www.spigotmc.org/resources/121682/");
             }
         });
         // 初始化組件
