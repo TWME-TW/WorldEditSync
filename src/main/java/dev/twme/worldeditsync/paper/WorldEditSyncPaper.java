@@ -17,6 +17,14 @@ public class WorldEditSyncPaper extends JavaPlugin {
 
     @Override
     public void onEnable() {
+
+        new UpdateChecker(this, 121682).getVersion(version -> {
+            if (this.getPluginMeta().getVersion().equals(version)) {
+                getLogger().info("There is not a new update available.");
+            } else {
+                getLogger().info("There is a new update available.");
+            }
+        });
         // 初始化組件
         this.clipboardManager = new ClipboardManager(this);
         this.worldEditHelper = new WorldEditHelper(this);
@@ -30,7 +38,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
         // getLogger().info("註冊通道: " + Constants.CHANNEL);
 
         // 啟動剪貼簿監視器
-        clipboardWatcher.runTaskTimerAsynchronously(this, 20L, 20L);
+        clipboardWatcher.runTaskTimerAsynchronously(this, 40L, 20L);
 
         // 註冊監聽器
         getServer().getPluginManager().registerEvents(playerListener, this);
