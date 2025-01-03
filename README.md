@@ -1,6 +1,6 @@
 # WorldEditSync
 
-WorldEditSync is a Minecraft plugin that synchronizes WorldEdit clipboards across multiple servers. This plugin is designed to work with both Paper and Velocity servers, ensuring that players' WorldEdit clipboards are consistent no matter which server they are on.
+WorldEditSync is a Minecraft plugin that synchronizes WorldEdit (FastAsyncWorldEdit) clipboards across multiple servers. This plugin is designed to work with both Paper and Velocity servers, ensuring that players' WorldEdit clipboards are consistent no matter which server they are on.
 
 ## Features
 
