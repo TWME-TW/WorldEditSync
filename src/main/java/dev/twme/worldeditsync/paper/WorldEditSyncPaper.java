@@ -35,6 +35,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
         // 註冊通道
         this.getServer().getMessenger().registerOutgoingPluginChannel(this, Constants.CHANNEL);
         this.getServer().getMessenger().registerIncomingPluginChannel(this, Constants.CHANNEL, messageHandler);
+        this.getServer().getMessenger().registerIncomingPluginChannel(this, "BungeeCord" , messageHandler);
         // getLogger().info("註冊通道: " + Constants.CHANNEL);
 
         // 啟動剪貼簿監視器

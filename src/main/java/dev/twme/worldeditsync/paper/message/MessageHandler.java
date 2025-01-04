@@ -20,7 +20,7 @@ public class MessageHandler implements PluginMessageListener {
 
     @Override
     public void onPluginMessageReceived(@NotNull String channel, @NotNull Player player, byte @NotNull [] message) {
-
+        plugin.getLogger().info("Received plugin message: " + channel);
         if (!channel.equals(Constants.CHANNEL)) {
             return;
         }
