@@ -52,7 +52,6 @@ public class WorldEditSyncBungee extends Plugin implements Listener {
     @EventHandler
     public void onPluginMessageReceived(PluginMessageEvent event) {
 
-        getLogger().info("Received plugin message: " + event.getTag());
         if (!event.getTag().equals(Constants.CHANNEL)) {
             return;
         }

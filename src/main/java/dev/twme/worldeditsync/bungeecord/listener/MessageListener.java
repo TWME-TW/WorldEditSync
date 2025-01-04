@@ -27,7 +27,6 @@ public class MessageListener implements Listener {
             ByteArrayDataInput in = ByteStreams.newDataInput(message);
             String subChannel = in.readUTF();
 
-            plugin.getLogger().info("Received plugin message(Subchannel): " + subChannel);
             switch (subChannel) {
                 case "ClipboardUpload":
                     handleClipboardUpload(in);
@@ -113,7 +112,7 @@ public class MessageListener implements Listener {
         startOut.writeInt(totalChunks);
         startOut.writeInt(Constants.DEFAULT_CHUNK_SIZE);
 
-        player.sendData(Constants.CHANNEL, startOut.toByteArray());
+        player.getServer().getInfo().sendData(Constants.CHANNEL, startOut.toByteArray());
 
         // 發送數據塊 異步
         plugin.getProxy().getScheduler().runAsync(plugin, () -> {
@@ -135,7 +134,7 @@ public class MessageListener implements Listener {
                 chunkOut.writeInt(chunk.length);
                 chunkOut.write(chunk);
 
-                player.sendData(Constants.CHANNEL, chunkOut.toByteArray());
+                player.getServer().getInfo().sendData(Constants.CHANNEL, chunkOut.toByteArray());
             }
             plugin.getLogger().info("Finished sending clipboard data to player: " + player.getName() +" Session: " +  sessionId);
         });
@@ -147,6 +146,6 @@ public class MessageListener implements Listener {
         out.writeUTF(player.getUniqueId().toString());
         out.writeUTF(hash);
 
-        player.sendData(Constants.CHANNEL, out.toByteArray());
+        player.getServer().getInfo().sendData(Constants.CHANNEL, out.toByteArray());
     }
 }

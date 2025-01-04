@@ -40,7 +40,7 @@ public class PlayerListener implements Listener {
                 out.writeUTF(player.getUniqueId().toString());
                 out.writeUTF(clipboardData.getHash());
 
-                player.sendData(Constants.CHANNEL, out.toByteArray());
+                player.getServer().getInfo().sendData(Constants.CHANNEL, out.toByteArray());
             } else {
                 // 請求從BungeeCord下載剪貼簿
                 noticeNoClipboardData(player);
@@ -59,6 +59,6 @@ public class PlayerListener implements Listener {
         out.writeUTF("NoClipboardData");
         out.writeUTF(player.getUniqueId().toString());
 
-        player.sendData(Constants.CHANNEL, out.toByteArray());
+        player.getServer().getInfo().sendData(Constants.CHANNEL, out.toByteArray());
     }
 }
