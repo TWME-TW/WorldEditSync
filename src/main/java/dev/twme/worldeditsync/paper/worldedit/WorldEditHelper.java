@@ -40,8 +40,6 @@ public class WorldEditHelper {
                 writer.write(clipboard);
             }
 
-            // deserializeClipboard(bos.toByteArray());
-
             return bos.toByteArray();
         } catch (IOException e) {
             plugin.getLogger().warning("Failed to serialize clipboard: " + e.getMessage());
@@ -72,39 +70,5 @@ public class WorldEditHelper {
         } catch (Exception e) {
             plugin.getLogger().warning("Failed to set player clipboard: " + e.getMessage());
         }
-    }
-
-
-
-
-    /**
-     * 將 byte[] 資料用 GZIP 壓縮
-     */
-    private byte[] compress(byte[] data) {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (GZIPOutputStream gos = new GZIPOutputStream(baos)) {
-            gos.write(data);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-        return baos.toByteArray();
-    }
-
-    /**
-     * 將 GZIP 壓縮後的 byte[] 解壓縮
-     */
-    private byte[] decompress(byte[] compressedData) {
-        ByteArrayInputStream bais = new ByteArrayInputStream(compressedData);
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (GZIPInputStream gis = new GZIPInputStream(bais)) {
-            byte[] buffer = new byte[1024];
-            int len;
-            while ((len = gis.read(buffer)) != -1) {
-                baos.write(buffer, 0, len);
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-        return baos.toByteArray();
     }
 }

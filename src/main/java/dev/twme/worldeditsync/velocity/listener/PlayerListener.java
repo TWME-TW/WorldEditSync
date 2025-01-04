@@ -39,14 +39,9 @@ public class PlayerListener {
                         MinecraftChannelIdentifier.from(Constants.CHANNEL),
                         out.toByteArray()
                 );
-
-                // plugin.getLogger().info("發送剪貼簿信息到新服務器: {}", event.getPlayer().getUniqueId());
             } else {
 
                 // 請求從Velocity下載剪貼簿
-                // requestClipboardDownload(event);
-
-                // 提醒 Paper Velocity 上沒有剪貼簿資料
                 noticeNoClipboardData(event);
             }
         }).delay(1, TimeUnit.SECONDS).schedule();
@@ -61,22 +56,5 @@ public class PlayerListener {
                 MinecraftChannelIdentifier.from(Constants.CHANNEL),
                 out.toByteArray()
         );
-
-        // plugin.getLogger().info("提醒 Paper Velocity 上沒有剪貼簿資料: {}", event.getPlayer().getUniqueId());
-    }
-
-
-
-    private void requestClipboardDownload(ServerConnectedEvent event) {
-        ByteArrayDataOutput out = ByteStreams.newDataOutput();
-        out.writeUTF("ClipboardDownload");
-        out.writeUTF(event.getPlayer().getUniqueId().toString());
-
-        event.getServer().sendPluginMessage(
-                MinecraftChannelIdentifier.from(Constants.CHANNEL),
-                out.toByteArray()
-        );
-
-        // plugin.getLogger().info("要求 Paper 從 Velocity 下載剪貼簿: {}", event.getPlayer().getUniqueId());
     }
 }

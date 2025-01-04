@@ -130,7 +130,7 @@ public class ClipboardManager {
         } catch (Exception e) {
             plugin.getLogger().severe("An error occurred while synchronizing clipboard: " + e.getMessage());
             player.sendMessage("§cAn error occurred while synchronizing clipboard!");
-            e.printStackTrace();
+            e.fillInStackTrace();
         }
     }
 
@@ -172,12 +172,9 @@ public class ClipboardManager {
             Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
                 sendChunks(player, sessionId, data, totalChunks);
                 Bukkit.getScheduler().runTask(plugin, () -> {
-                    plugin.getLogger().info("Uploaded clipboard for player: " + player.getName() + ", session: " + sessionId);
+                    plugin.getLogger().info("Uploaded clipboard for player: " + player.getName() + ", Session: " + sessionId + ", Chunks: " + totalChunks);
                 });
             });
-            // sendChunks(player, sessionId, data, totalChunks);
-
-            // player.sendMessage("§e正在上傳剪貼簿...");
 
         } catch (Exception e) {
             plugin.getLogger().severe("上傳剪貼簿時發生錯誤: " + e.getMessage());
@@ -212,8 +209,6 @@ public class ClipboardManager {
                 out.writeInt(chunkLength);  // 區塊大小
                 out.write(chunkData);  // 區塊數據
 
-                // plugin.getLogger().info("PluginMessage: " + Constants.CHANNEL + ":" + "ClipboardChunk" + ":" + sessionId + ":" + i + ":" + chunkLength);
-
                 player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
 
                 if (i + 1 < totalChunks) {
@@ -221,21 +216,11 @@ public class ClipboardManager {
                 } else {
                     player.sendActionBar(mm.deserialize("<green>Clipboard uploaded!</green>"));
                 }
-
-//                plugin.getLogger().warning(String.format(
-//                        "發送區塊 %d/%d, 大小: %d bytes",
-//                        i + 1, totalChunks, chunkLength
-//                ));
             }
-
-//            plugin.getLogger().info(String.format(
-//                    "完成發送剪貼簿，共 %d 個區塊",
-//                    totalChunks
-//            ));
 
         } catch (Exception e) {
             plugin.getLogger().severe("An error occurred while sending chunks: " + e.getMessage());
-            throw e;  // 讓上層方法處理錯誤
+            throw e;
         }
     }
 
@@ -386,32 +371,7 @@ public class ClipboardManager {
             }
 
 
-
-
             return true;
-            /*
-
-            // 請求遠端剪貼簿雜湊值
-            ByteArrayDataOutput out = ByteStreams.newDataOutput();
-            out.writeUTF("ClipboardInfo");
-            out.writeUTF(player.getUniqueId().toString());
-
-            player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
-
-            // 等待遠端剪貼簿雜湊值
-            // 這裡可以添加等待邏輯，例如使用 CountDownLatch 或其他同步機制
-
-
-            // 比較本地和遠端剪貼簿雜湊值
-            String remoteHash = getRemoteHash(player.getUniqueId());
-            if (!localHash.equals(remoteHash)) {
-                // 如果雜湊值不同，請求下載
-                requestClipboardDownload(player);
-                return false;
-            }
-
-            return true;
-            */
         } catch (Exception e) {
             plugin.getLogger().severe("An error occurred while checking and downloading clipboard: " + e.getMessage());
             player.sendActionBar(mm.deserialize("An error occurred while checking and downloading clipboard"));
@@ -439,14 +399,5 @@ public class ClipboardManager {
             plugin.getClipboardManager().setLocalClipboard(player.getUniqueId(), serializedClipboard, hash);
             plugin.getClipboardManager().uploadClipboard(player, serializedClipboard);
         }
-    }
-
-    /**
-     * 獲取遠端剪貼簿雜湊值
-     */
-    private String getRemoteHash(UUID playerUuid) {
-        // 這裡可以添加獲取遠端剪貼簿雜湊值的邏輯
-        // 例如，從遠端服務器獲取雜湊值
-        return "";
     }
 }

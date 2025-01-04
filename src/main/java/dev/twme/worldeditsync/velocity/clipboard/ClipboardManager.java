@@ -40,11 +40,8 @@ public class ClipboardManager {
 
         TransferSession session = transferSessions.get(sessionId);
         if (session != null) {
-            // plugin.getLogger().info("Add chunk: {}", index);
 
             session.addChunk(index, data);
-
-            // plugin.getLogger().info("Chunk size: {}, Total chunks: {}", session.getChunkSize(), session.getTotalChunks());
 
             if (session.isComplete()) {
                 // plugin.getLogger().info("Session is complete: {}", sessionId);
