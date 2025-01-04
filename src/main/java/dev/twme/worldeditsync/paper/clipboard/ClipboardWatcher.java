@@ -22,11 +22,10 @@ public class ClipboardWatcher extends BukkitRunnable {
 
 
             if (!(player.hasPermission("worldeditsync.sync"))) {
-                // plugin.getLogger().info("玩家 " + player.getName() + " 沒有權限");
                 continue;
             }
 
-            if (!plugin.getClipboardManager().isChecked(player.getUniqueId())) {
+            if (!clipboardManager.isChecked(player.getUniqueId())) {
                 continue;
             }
 
@@ -41,15 +40,14 @@ public class ClipboardWatcher extends BukkitRunnable {
         }
 
         // 使用新的判斷方法
-        if (plugin.getClipboardManager().hasClipboardChanged(player, clipboard)) {
-            // plugin.getLogger().info("偵測到玩家 " + player.getName() + " 的剪貼簿已更新");
+        if (clipboardManager.hasClipboardChanged(player, clipboard)) {
             player.sendActionBar(mm.deserialize("<green>Detect clipboard change, uploading...</green>"));
             // 序列化並上傳
             byte[] serializedClipboard = plugin.getWorldEditHelper().serializeClipboard(clipboard);
             if (serializedClipboard != null) {
-                String hash = plugin.getClipboardManager().calculateClipboardHash(clipboard);
-                plugin.getClipboardManager().setLocalClipboard(player.getUniqueId(), serializedClipboard, hash);
-                plugin.getClipboardManager().uploadClipboard(player, serializedClipboard);
+                String hash = clipboardManager.calculateClipboardHash(clipboard);
+                clipboardManager.setLocalClipboard(player.getUniqueId(), serializedClipboard, hash);
+                clipboardManager.uploadClipboard(player, serializedClipboard);
             }
         }
     }
