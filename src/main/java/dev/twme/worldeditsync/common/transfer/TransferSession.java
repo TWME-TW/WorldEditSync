@@ -11,6 +11,7 @@ public class TransferSession {
     private final int chunkSize;
     private final Map<Integer, byte[]> chunks;
     private long lastUpdateTime;
+    private TransferStatus status;
 
     public TransferSession(UUID playerUuid, String sessionId, int totalChunks, int chunkSize) {
         this.playerUuid = playerUuid;
@@ -19,6 +20,7 @@ public class TransferSession {
         this.chunkSize = chunkSize;
         this.chunks = new ConcurrentHashMap<>();
         this.lastUpdateTime = System.currentTimeMillis();
+        status = TransferStatus.PENDING;
     }
 
     public void addChunk(int index, byte[] data) {
@@ -72,5 +74,14 @@ public class TransferSession {
 
     public long getLastUpdateTime() {
         return lastUpdateTime;
+    }
+
+    public TransferSession setStatus(TransferStatus status) {
+        this.status = status;
+        return this;
+    }
+
+    public TransferStatus getStatus() {
+        return status;
     }
 }
