@@ -68,3 +68,5 @@ This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE
 ## Contact
 
 For support or inquiries, please open an issue on GitHub or contact the authors.
+
+###### Tags: FastAsyncWorldEdit WorldEdit Clipboard Plugin Copy WorldEditGlobalizer
