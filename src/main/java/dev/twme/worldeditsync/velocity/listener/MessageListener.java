@@ -159,7 +159,7 @@ public class MessageListener {
                 }
 
                 try {
-                    Thread.sleep(50);
+                    Thread.sleep(Constants.THREAD_DELAY_MS);
                 } catch (InterruptedException e) {
                     e.fillInStackTrace();
                 }

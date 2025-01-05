@@ -1,0 +1,5 @@
+main: dev.twme.worldeditsync.bungeecord.WorldEditSyncBungee
+version: '${project.version}'
+name: WorldEditSync
+author: TWME-TW
+description: Sync WorldEdit clipboard across servers
