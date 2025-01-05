@@ -58,7 +58,7 @@ public class ClipboardManager {
                 storeClipboard(playerUuid, fullData, hash);
 
                 // 儲存並廣播到其他服務器
-                broadcastClipboardUpdate(playerUuid, fullData);
+                // broadcastClipboardUpdate(playerUuid, fullData);
 
                 // 清理會話
                 transferSessions.remove(sessionId);
