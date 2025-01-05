@@ -26,6 +26,7 @@ public class PlayerListener {
         // 當玩家連接到新服務器時，檢查是否有可用的剪貼簿數據
         ClipboardManager.ClipboardData clipboardData =
                 clipboardManager.getClipboard(event.getPlayer().getUniqueId());
+        clipboardManager.setPlayerTransferring(event.getPlayer().getUniqueId(), false);
 
         plugin.getServer().getScheduler().buildTask(plugin, () -> {
             if (clipboardData != null) {

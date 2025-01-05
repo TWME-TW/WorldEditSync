@@ -31,6 +31,7 @@ public class PlayerListener implements Listener {
     private void handleServerUpdate(ProxiedPlayer player) {
         ClipboardManager.ClipboardData clipboardData =
                 clipboardManager.getClipboard(player.getUniqueId());
+        clipboardManager.setPlayerTransferring(player.getUniqueId(), false);
 
         plugin.getProxy().getScheduler().schedule(plugin, () -> {
             if (clipboardData != null) {
