@@ -1,19 +1,20 @@
 # WorldEditSync
 
-WorldEditSync is a Minecraft plugin that synchronizes WorldEdit (FastAsyncWorldEdit) clipboards across multiple servers. This plugin is designed to work with both Paper and Velocity servers, ensuring that players' WorldEdit clipboards are consistent no matter which server they are on.
+WorldEditSync is a Minecraft plugin that synchronizes WorldEdit (FastAsyncWorldEdit) clipboards across multiple servers. This plugin is designed to work with Paper, BungeeCord, and Velocity servers, ensuring that players' WorldEdit clipboards are consistent no matter which server they are on.
 
 ## Features
 
-- Synchronize WorldEdit clipboards across multiple servers.
+- Synchronize WorldEdit and FastAsyncWorldEdit clipboards across multiple servers.
 - Automatically upload and download clipboards when players switch servers.
 - Efficient chunk-based data transfer to handle large clipboards.
 - Permissions support to control which players can use the synchronization feature.
+- Support for Paper, BungeeCord, and Velocity servers.
 
 ## Requirements
 
 - Minecraft server running Paper.
-- Velocity proxy server.
-- WorldEdit plugin installed on the Paper server.
+- BungeeCord or Velocity proxy server.
+- WorldEdit or FastAsyncWorldEdit plugin installed on the Paper server.
 
 ## Installation
 
@@ -22,10 +23,10 @@ WorldEditSync is a Minecraft plugin that synchronizes WorldEdit (FastAsyncWorldE
 
 2. **Install on Paper Server:**
    - Place the `WorldEditSync.jar` file in the `plugins` directory of your Paper server.
-   - Ensure that the WorldEdit plugin is also installed on the Paper server.
+   - Ensure that the WorldEdit or FastAsyncWorldEdit plugin is also installed on the Paper server.
 
-3. **Install on Velocity Proxy:**
-   - Place the `WorldEditSync.jar` file in the `plugins` directory of your Velocity proxy server.
+3. **Install on BungeeCord or Velocity Proxy:**
+   - Place the `WorldEditSync.jar` file in the `plugins` directory of your BungeeCord or Velocity proxy server.
 
 4. **Configuration:**
    - No additional configuration is required. The plugin will automatically register the necessary channels and start synchronizing clipboards.
@@ -36,7 +37,7 @@ WorldEditSync is a Minecraft plugin that synchronizes WorldEdit (FastAsyncWorldE
   - The plugin uses the `worldeditsync.sync` permission to control which players can use the synchronization feature. By default, this permission is granted to all players.
 
 - **Commands:**
-  - There are no commands required to use this plugin. Clipboard synchronization happens automatically when players copy or cut using WorldEdit and switch servers.
+  - There are no commands required to use this plugin. Clipboard synchronization happens automatically when players copy or cut using WorldEdit or FastAsyncWorldEdit and switch servers.
 
 ## Development
 
