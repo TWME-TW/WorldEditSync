@@ -68,7 +68,7 @@ public class WorldEditSyncVelocity {
     private void startCleanupTask() {
         server.getScheduler()
                 .buildTask(this, () -> clipboardManager.cleanupExpiredSessions())
-                .repeat(30L, TimeUnit.SECONDS)
+                .repeat(2L, TimeUnit.MINUTES)
                 .schedule();
     }
 

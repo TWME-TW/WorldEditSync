@@ -1,23 +1,24 @@
-package dev.twme.worldeditsync.velocity.clipboard;
+package dev.twme.worldeditsync.bungeecord.clipboard;
 
+import com.google.common.hash.Hashing;
 import com.google.common.io.ByteArrayDataOutput;
-import com.velocitypowered.api.proxy.Player;
-import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
-import com.velocitypowered.api.proxy.server.RegisteredServer;
+import com.google.common.io.ByteStreams;
+import net.md_5.bungee.api.config.ServerInfo;
+import net.md_5.bungee.api.connection.ProxiedPlayer;
 import dev.twme.worldeditsync.common.Constants;
 import dev.twme.worldeditsync.common.transfer.TransferSession;
-import dev.twme.worldeditsync.velocity.WorldEditSyncVelocity;
+import dev.twme.worldeditsync.bungeecord.WorldEditSyncBungee;
 
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ClipboardManager {
-    private final WorldEditSyncVelocity plugin;
+    private final WorldEditSyncBungee plugin;
     private final Map<UUID, ClipboardData> clipboardStorage;
     private final Map<String, TransferSession> transferSessions;
 
-    public ClipboardManager(WorldEditSyncVelocity plugin) {
+    public ClipboardManager(WorldEditSyncBungee plugin) {
         this.plugin = plugin;
         this.clipboardStorage = new ConcurrentHashMap<>();
         this.transferSessions = new ConcurrentHashMap<>();
@@ -38,10 +39,8 @@ public class ClipboardManager {
     }
 
     public void addChunk(String sessionId, int index, byte[] data) {
-
         TransferSession session = transferSessions.get(sessionId);
         if (session != null) {
-
             session.addChunk(index, data);
 
             if (session.isComplete()) {
@@ -50,10 +49,10 @@ public class ClipboardManager {
                 String hash = calculateHash(fullData);
 
                 if (fullData == null) {
-                    plugin.getLogger().warn("Failed to assemble data: {}", sessionId);
+                    plugin.getLogger().warning("Failed to assemble data: " + sessionId);
                     return;
                 }
-                plugin.getLogger().info("Finished transferring clipboard data: {}", sessionId);
+                plugin.getLogger().info("Finished transferring clipboard data: " + sessionId);
                 // 儲存剪貼簿
                 storeClipboard(playerUuid, fullData, hash);
 
@@ -64,25 +63,22 @@ public class ClipboardManager {
                 transferSessions.remove(sessionId);
             }
         } else {
-            plugin.getLogger().warn("Session not found: {}", sessionId);
+            plugin.getLogger().warning("Session not found: " + sessionId);
         }
     }
 
     public void broadcastClipboardUpdate(UUID playerUuid, byte[] data) {
-        Player targetPlayer = plugin.getServer().getPlayer(playerUuid).orElse(null);
+        ProxiedPlayer targetPlayer = plugin.getProxy().getPlayer(playerUuid);
         if (targetPlayer == null) return;
 
-        for (RegisteredServer server : plugin.getServer().getAllServers()) {
-            if (!targetPlayer.getCurrentServer().isPresent()) {
+        for (ServerInfo server : plugin.getProxy().getServers().values()) {
+            if (!targetPlayer.getServer().isConnected()) {
                 // 玩家不在線上
                 return;
             }
-            if (!server.equals(targetPlayer.getCurrentServer().get().getServer())) {
+            if (!server.equals(targetPlayer.getServer().getInfo())) {
                 // 發送到其他服務器
-                server.sendPluginMessage(
-                        MinecraftChannelIdentifier.from(Constants.CHANNEL),
-                        createUpdateMessage(playerUuid, data)
-                );
+                server.sendData(Constants.CHANNEL, createUpdateMessage(playerUuid, data));
             }
         }
     }
@@ -98,16 +94,15 @@ public class ClipboardManager {
         transferSessions.clear();
     }
 
-
     private String calculateHash(byte[] data) {
-        return com.google.common.hash.Hashing.sha256()
+        return Hashing.sha256()
                 .hashBytes(data)
                 .toString();
     }
 
     private byte[] createUpdateMessage(UUID playerUuid, byte[] data) {
         ByteArrayDataOutput out =
-                com.google.common.io.ByteStreams.newDataOutput();
+                ByteStreams.newDataOutput();
         out.writeUTF("ClipboardUpdate");
         out.writeUTF(playerUuid.toString());
         out.write(data);

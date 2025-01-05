@@ -20,7 +20,6 @@ public class MessageHandler implements PluginMessageListener {
 
     @Override
     public void onPluginMessageReceived(@NotNull String channel, @NotNull Player player, byte @NotNull [] message) {
-
         if (!channel.equals(Constants.CHANNEL)) {
             return;
         }
@@ -36,6 +35,7 @@ public class MessageHandler implements PluginMessageListener {
                 case "ClipboardDownload" -> handleClipboardDownload(player, in);
                 case "ClipboardUpload" -> handleClipboardUploadRequest(player, in);
                 case "NoClipboardData" -> handleNoClipboardData(player, in);
+                case "ClipboardUpdate" -> requestClipboardDownload(player);
             }
         } catch (Exception e) {
             plugin.getLogger().severe("An error occurred while handling plugin message: " + e.getMessage());

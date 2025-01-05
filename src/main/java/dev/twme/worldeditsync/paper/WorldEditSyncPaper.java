@@ -35,7 +35,6 @@ public class WorldEditSyncPaper extends JavaPlugin {
         // 註冊通道
         this.getServer().getMessenger().registerOutgoingPluginChannel(this, Constants.CHANNEL);
         this.getServer().getMessenger().registerIncomingPluginChannel(this, Constants.CHANNEL, messageHandler);
-        // getLogger().info("註冊通道: " + Constants.CHANNEL);
 
         // 啟動剪貼簿監視器
         clipboardWatcher.runTaskTimerAsynchronously(this, 40L, 20L);
@@ -47,9 +46,8 @@ public class WorldEditSyncPaper extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        // 取消註冊通道
-        // this.getServer().getMessenger().unregisterOutgoingPluginChannel(this);
-        // this.getServer().getMessenger().unregisterIncomingPluginChannel(this);
+        this.getServer().getMessenger().unregisterOutgoingPluginChannel(this);
+        this.getServer().getMessenger().unregisterIncomingPluginChannel(this);
 
         // 停止任務
         if (clipboardWatcher != null) {
