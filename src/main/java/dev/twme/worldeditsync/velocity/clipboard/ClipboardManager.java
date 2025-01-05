@@ -1,5 +1,6 @@
 package dev.twme.worldeditsync.velocity.clipboard;
 
+import com.google.common.io.ByteArrayDataOutput;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
@@ -105,7 +106,7 @@ public class ClipboardManager {
     }
 
     private byte[] createUpdateMessage(UUID playerUuid, byte[] data) {
-        com.google.common.io.ByteArrayDataOutput out =
+        ByteArrayDataOutput out =
                 com.google.common.io.ByteStreams.newDataOutput();
         out.writeUTF("ClipboardUpdate");
         out.writeUTF(playerUuid.toString());

@@ -1,7 +1,6 @@
 package dev.twme.worldeditsync.bungeecord.listener;
 
 import net.md_5.bungee.api.connection.ProxiedPlayer;
-import net.md_5.bungee.api.connection.Server;
 import net.md_5.bungee.api.plugin.Listener;
 import dev.twme.worldeditsync.common.Constants;
 import dev.twme.worldeditsync.bungeecord.WorldEditSyncBungee;
@@ -118,7 +117,7 @@ public class MessageListener implements Listener {
         plugin.getProxy().getScheduler().runAsync(plugin, () -> {
             for (int i = 0; i < totalChunks; i++) {
                 try {
-                    Thread.sleep(50);
+                    Thread.sleep(Constants.THREAD_DELAY_MS);
                 } catch (InterruptedException e) {
                     e.fillInStackTrace();
                 }

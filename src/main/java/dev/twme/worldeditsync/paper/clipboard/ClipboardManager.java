@@ -341,7 +341,6 @@ public class ClipboardManager {
     public void requestClipboardDownload(Player player) {
         // plugin.getLogger().info("開始請求下載剪貼簿");
 
-
         try {
             ByteArrayDataOutput out = ByteStreams.newDataOutput();
             out.writeUTF("ClipboardDownload");

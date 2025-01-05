@@ -1,5 +1,8 @@
 package dev.twme.worldeditsync.bungeecord.clipboard;
 
+import com.google.common.hash.Hashing;
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
 import net.md_5.bungee.api.config.ServerInfo;
 import net.md_5.bungee.api.connection.ProxiedPlayer;
 import dev.twme.worldeditsync.common.Constants;
@@ -92,14 +95,14 @@ public class ClipboardManager {
     }
 
     private String calculateHash(byte[] data) {
-        return com.google.common.hash.Hashing.sha256()
+        return Hashing.sha256()
                 .hashBytes(data)
                 .toString();
     }
 
     private byte[] createUpdateMessage(UUID playerUuid, byte[] data) {
-        com.google.common.io.ByteArrayDataOutput out =
-                com.google.common.io.ByteStreams.newDataOutput();
+        ByteArrayDataOutput out =
+                ByteStreams.newDataOutput();
         out.writeUTF("ClipboardUpdate");
         out.writeUTF(playerUuid.toString());
         out.write(data);
