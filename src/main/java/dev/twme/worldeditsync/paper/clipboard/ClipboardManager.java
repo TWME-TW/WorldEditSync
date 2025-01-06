@@ -18,12 +18,14 @@ public class ClipboardManager {
     private final Map<UUID, ClipboardData> clipboardCache;
     private final Map<String, TransferSession> activeSessions;
     private final Set<UUID> firstCheck = new HashSet<>();
+    private Map<UUID, Boolean> playerTransferStatus;
     private final MiniMessage mm = MiniMessage.miniMessage();
 
     public ClipboardManager(WorldEditSyncPaper plugin) {
         this.plugin = plugin;
         this.clipboardCache = new ConcurrentHashMap<>();
         this.activeSessions = new HashMap<>();
+        this.playerTransferStatus = new ConcurrentHashMap<>();
     }
 
     /**
@@ -54,7 +56,6 @@ public class ClipboardManager {
      */
     public String calculateClipboardHash(Clipboard clipboard) {
         if (clipboard == null) return "";
-
         return String.valueOf(clipboard.hashCode());
     }
 
@@ -157,6 +158,8 @@ public class ClipboardManager {
                 return;
             }
 
+            plugin.getClipboardManager().setPlayerTransferring(player.getUniqueId(), true);
+
             // 發送上傳開始訊息
             ByteArrayDataOutput out = ByteStreams.newDataOutput();
             out.writeUTF("ClipboardUpload");
@@ -185,7 +188,7 @@ public class ClipboardManager {
     private void sendChunks(Player player, String sessionId, byte[] data, int totalChunks) {
         //wait 10ms
         try {
-            Thread.sleep(10);
+            Thread.sleep(Constants.THREAD_DELAY_MS);
         } catch (InterruptedException e) {
             e.fillInStackTrace();
         }
@@ -214,6 +217,7 @@ public class ClipboardManager {
                 if (i + 1 < totalChunks) {
                     player.sendActionBar(mm.deserialize("<blue>Uploading clipboard... <gray>(" + (i + 1) + "</gray>/<yellow>" + totalChunks + "</yellow>)</blue>"));
                 } else {
+                    setPlayerTransferring(player.getUniqueId(), false);
                     player.sendActionBar(mm.deserialize("<green>Clipboard uploaded!</green>"));
                 }
             }
@@ -248,10 +252,10 @@ public class ClipboardManager {
             // 獲取儲存的雜湊值
             String storedHash = getLocalHash(player.getUniqueId());
 
-            // 如果任一雜湊值為空，視為有變化
-            if (currentHash.isEmpty() || storedHash.isEmpty()) {
-                return true;
-            }
+//            // 如果儲存的雜湊值為空，視為有變化
+//            if (storedHash.isEmpty()) {
+//                return true;
+//            }
 
             return !currentHash.equals(storedHash);
 
@@ -393,10 +397,21 @@ public class ClipboardManager {
     public void startUploadClipboard(Player player) {
         Clipboard clipboard = plugin.getWorldEditHelper().getPlayerClipboard(player);
         byte[] serializedClipboard = plugin.getWorldEditHelper().serializeClipboard(clipboard);
+
         if (serializedClipboard != null) {
-            String hash = plugin.getClipboardManager().calculateClipboardHash(clipboard);
-            plugin.getClipboardManager().setLocalClipboard(player.getUniqueId(), serializedClipboard, hash);
-            plugin.getClipboardManager().uploadClipboard(player, serializedClipboard);
+            String hash = calculateClipboardHash(clipboard);
+            setLocalClipboard(player.getUniqueId(), serializedClipboard, hash);
+            setPlayerTransferring(player.getUniqueId(), true);
+
+            uploadClipboard(player, serializedClipboard);
         }
+    }
+
+    public void setPlayerTransferring(UUID playerUuid, boolean transferring) {
+        playerTransferStatus.put(playerUuid, transferring);
+    }
+
+    public boolean isPlayerTransferring(UUID playerUuid) {
+        return playerTransferStatus.getOrDefault(playerUuid, false);
     }
 }

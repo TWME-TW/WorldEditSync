@@ -54,7 +54,7 @@ public class ClipboardManager {
                     plugin.getLogger().warning("Failed to assemble data: " + sessionId);
                     return;
                 }
-                plugin.getLogger().info("Finished transferring clipboard data: " + sessionId);
+                plugin.getLogger().info("Finished receiving clipboard data: " + sessionId);
                 // 儲存剪貼簿
                 storeClipboard(playerUuid, fullData, hash);
 

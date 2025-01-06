@@ -58,21 +58,18 @@ public class MessageListener implements Listener {
 
         clipboardManager.createTransferSession(sessionId,
                 UUID.fromString(playerUuid), totalChunks, chunkSize);
-
-        plugin.getLogger().info("Created transfer session: " + sessionId);
     }
 
     private void handleClipboardDownload(ByteArrayDataInput in, ProxiedPlayer player) {
         String playerUuid = in.readUTF();
         ClipboardManager.ClipboardData clipboardData = clipboardManager.getClipboard(UUID.fromString(playerUuid));
-        plugin.getLogger().info("Received download request from player: " + player.getName() + " UUID: " + playerUuid);
+
         if (clipboardData != null) {
             if (clipboardManager.isPlayerTransferring(player.getUniqueId())) {
                 // 如果玩家正在傳輸剪貼簿，則不允許下載
                 return;
             }
             clipboardManager.setPlayerTransferring(player.getUniqueId(), true);
-            plugin.getLogger().info("Sending clipboard data to player: " + player.getName());
             sendClipboardData(player, clipboardData.getData());
         }
     }

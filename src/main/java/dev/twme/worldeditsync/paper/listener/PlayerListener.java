@@ -16,9 +16,18 @@ public class PlayerListener implements Listener {
     }
 
     @EventHandler
+    public void onPlayerJoin(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+
+        plugin.getClipboardManager().setPlayerTransferring(player.getUniqueId(), false);
+        plugin.getClipboardManager().uncheck(player.getUniqueId());
+    }
+
+    @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
 
+        plugin.getClipboardManager().setPlayerTransferring(player.getUniqueId(), false);
         plugin.getClipboardManager().uncheck(player.getUniqueId());
     }
 
@@ -29,6 +38,7 @@ public class PlayerListener implements Listener {
         String[] args = message.split(" ");
 
         if (args[0].equalsIgnoreCase("//copy") || args[0].equalsIgnoreCase("//cut")) {
+            plugin.getClipboardManager().setPlayerTransferring(player.getUniqueId(), false);
             plugin.getClipboardManager().check(player.getUniqueId());
         }
     }

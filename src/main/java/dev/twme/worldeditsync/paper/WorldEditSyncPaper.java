@@ -37,7 +37,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
         this.getServer().getMessenger().registerIncomingPluginChannel(this, Constants.CHANNEL, messageHandler);
 
         // 啟動剪貼簿監視器
-        clipboardWatcher.runTaskTimerAsynchronously(this, 40L, 20L);
+        clipboardWatcher.runTaskTimer(this, 40L, 20L);
 
         // 註冊監聽器
         getServer().getPluginManager().registerEvents(playerListener, this);
