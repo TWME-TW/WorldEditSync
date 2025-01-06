@@ -24,31 +24,38 @@ public class ClipboardWatcher extends BukkitRunnable {
             if (!(player.hasPermission("worldeditsync.sync"))) {
                 continue;
             }
-
             if (!clipboardManager.isChecked(player.getUniqueId())) {
                 continue;
             }
 
-            checkAndUploadPlayerClipboard(player);
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> checkAndUploadPlayerClipboard(player));
         }
     }
 
     private void checkAndUploadPlayerClipboard(Player player) {
+        if (plugin.getClipboardManager().isPlayerTransferring(player.getUniqueId())) return;
+
         Clipboard clipboard = plugin.getWorldEditHelper().getPlayerClipboard(player);
         if (clipboard == null) {
             return;
         }
 
-        // 使用新的判斷方法
-        if (clipboardManager.hasClipboardChanged(player, clipboard)) {
-            player.sendActionBar(mm.deserialize("<green>Detect clipboard change, uploading...</green>"));
-            // 序列化並上傳
-            byte[] serializedClipboard = plugin.getWorldEditHelper().serializeClipboard(clipboard);
-            if (serializedClipboard != null) {
-                String hash = clipboardManager.calculateClipboardHash(clipboard);
-                clipboardManager.setLocalClipboard(player.getUniqueId(), serializedClipboard, hash);
-                clipboardManager.uploadClipboard(player, serializedClipboard);
-            }
+        if (!clipboardManager.hasClipboardChanged(player, clipboard)) {
+            return;
         }
+        plugin.getClipboardManager().setPlayerTransferring(player.getUniqueId(), true);
+
+        player.sendActionBar(mm.deserialize("<green>Detect clipboard change, uploading...</green>"));
+        // 序列化並上傳
+
+
+        // if (plugin.getClipboardManager().isPlayerTransferring(player.getUniqueId())) return;
+
+        byte[] serializedClipboard = plugin.getWorldEditHelper().serializeClipboard(clipboard);
+
+        String hash = clipboardManager.calculateClipboardHash(clipboard);
+        clipboardManager.setLocalClipboard(player.getUniqueId(), serializedClipboard, hash);
+        clipboardManager.uploadClipboard(player, serializedClipboard);
+
     }
 }

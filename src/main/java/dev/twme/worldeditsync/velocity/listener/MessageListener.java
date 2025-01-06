@@ -89,7 +89,11 @@ public class MessageListener {
         ClipboardManager.ClipboardData clipboardData = clipboardManager.getClipboard(UUID.fromString(playerUuid));
 
         if (clipboardData != null) {
-
+            if (clipboardManager.isPlayerTransferring(player.getUniqueId())) {
+                // 如果玩家正在傳輸剪貼簿，則不允許下載
+                return;
+            }
+            clipboardManager.setPlayerTransferring(player.getUniqueId(), true);
             sendClipboardData(player, clipboardData.getData());
         }
     }
@@ -183,7 +187,7 @@ public class MessageListener {
                 );
             }
             plugin.getLogger().info("Finished sending clipboard data to player: {} Session: {}", player.getUsername(), sessionId);
-
+            clipboardManager.setPlayerTransferring(player.getUniqueId(), false);
         }).schedule();
     }
 

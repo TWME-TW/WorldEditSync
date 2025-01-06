@@ -16,11 +16,13 @@ public class ClipboardManager {
     private final WorldEditSyncVelocity plugin;
     private final Map<UUID, ClipboardData> clipboardStorage;
     private final Map<String, TransferSession> transferSessions;
+    private final Map<UUID, Boolean> playerTransferStatus;
 
     public ClipboardManager(WorldEditSyncVelocity plugin) {
         this.plugin = plugin;
         this.clipboardStorage = new ConcurrentHashMap<>();
         this.transferSessions = new ConcurrentHashMap<>();
+        this.playerTransferStatus = new ConcurrentHashMap<>();
     }
 
     public void storeClipboard(UUID playerUuid, byte[] data, String hash) {
@@ -53,7 +55,7 @@ public class ClipboardManager {
                     plugin.getLogger().warn("Failed to assemble data: {}", sessionId);
                     return;
                 }
-                plugin.getLogger().info("Finished transferring clipboard data: {}", sessionId);
+                plugin.getLogger().info("Finished receiving clipboard data: {}", sessionId);
                 // 儲存剪貼簿
                 storeClipboard(playerUuid, fullData, hash);
 
@@ -136,5 +138,13 @@ public class ClipboardManager {
         public long getTimestamp() {
             return timestamp;
         }
+    }
+
+    public boolean isPlayerTransferring(UUID playerUuid) {
+        return playerTransferStatus.getOrDefault(playerUuid, false);
+    }
+
+    public void setPlayerTransferring(UUID playerUuid, boolean transferring) {
+        playerTransferStatus.put(playerUuid, transferring);
     }
 }
