@@ -1,4 +1,4 @@
-package dev.twme.worldeditsync.paper.message;
+package dev.twme.worldeditsync.paper.pluginmessage;
 
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteStreams;
@@ -9,12 +9,12 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.messaging.PluginMessageListener;
 import org.jetbrains.annotations.NotNull;
 
-public class MessageHandler implements PluginMessageListener {
+public class PluginMessageHandler implements PluginMessageListener {
 
     private final WorldEditSyncPaper plugin;
     private final MiniMessage mm = MiniMessage.miniMessage();
 
-    public MessageHandler(WorldEditSyncPaper plugin) {
+    public PluginMessageHandler(WorldEditSyncPaper plugin) {
         this.plugin = plugin;
     }
 

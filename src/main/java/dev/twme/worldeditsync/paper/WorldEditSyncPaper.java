@@ -4,14 +4,14 @@ import dev.twme.worldeditsync.common.Constants;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardWatcher;
 import dev.twme.worldeditsync.paper.listener.PlayerListener;
-import dev.twme.worldeditsync.paper.message.MessageHandler;
+import dev.twme.worldeditsync.paper.pluginmessage.PluginMessageHandler;
 import dev.twme.worldeditsync.paper.worldedit.WorldEditHelper;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class WorldEditSyncPaper extends JavaPlugin {
     private ClipboardManager clipboardManager;
     private WorldEditHelper worldEditHelper;
-    private MessageHandler messageHandler;
+    private PluginMessageHandler messageHandler;
     private ClipboardWatcher clipboardWatcher;
     private PlayerListener playerListener;
 
@@ -28,7 +28,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
         // 初始化組件
         this.clipboardManager = new ClipboardManager(this);
         this.worldEditHelper = new WorldEditHelper(this);
-        this.messageHandler = new MessageHandler(this);
+        this.messageHandler = new PluginMessageHandler(this);
         this.clipboardWatcher = new ClipboardWatcher(this);
         this.playerListener = new PlayerListener(this);
 
@@ -65,7 +65,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
         return worldEditHelper;
     }
 
-    public MessageHandler getMessageHandler() {
+    public PluginMessageHandler getMessageHandler() {
         return messageHandler;
     }
 }
