@@ -54,6 +54,8 @@ public class MessageListener {
                 case "ClipboardInfo":
                     handleClipboardInfo(in, event);
                     break;
+                case "ClipboardStop":
+                    handleClipboardStop(in, event);
             }
         } catch (Exception e) {
             plugin.getLogger().error("Error handling plugin message", e);
@@ -128,6 +130,11 @@ public class MessageListener {
         }
     }
 
+    private void handleClipboardStop(ByteArrayDataInput in, PluginMessageEvent event) {
+        String playerUuid = in.readUTF();
+        clipboardManager.setPlayerTransferring(UUID.fromString(playerUuid), false);
+    }
+
     private void sendClipboardData(Player player, byte[] data) {
         // 分塊發送數據
         int totalChunks = (int) Math.ceil(data.length / (double) Constants.DEFAULT_CHUNK_SIZE);
@@ -154,12 +161,20 @@ public class MessageListener {
             String currentServer = player.getCurrentServer().map(serverConnection -> serverConnection.getServerInfo().getName()).orElse("null");
             for (int i = 0; i < totalChunks; i++) {
                 if (currentServer.equals("null")) {
-                    return;
+                    break;
+                }
+
+                if (!clipboardManager.isPlayerTransferring(player.getUniqueId())) {
+                    break;
+                }
+
+                if (!player.isActive()) {
+                    break;
                 }
 
                 String lastServer = player.getCurrentServer().map(serverConnection -> serverConnection.getServerInfo().getName()).orElse("null");
                 if (!lastServer.equals(currentServer)) {
-                    return;
+                    break;
                 }
 
                 try {

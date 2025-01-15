@@ -76,9 +76,12 @@ public class ClipboardManager {
      * 處理接收到的區塊數據
      */
     public void handleChunkData(Player player, String sessionId, int chunkIndex, byte[] chunkData) {
+
+
         TransferSession session = activeSessions.get(sessionId);
         if (session == null) {
             plugin.getLogger().warning("Cannot find active session: " + sessionId);
+            sendStopMessage(player);
             return;
         }
 
@@ -91,7 +94,12 @@ public class ClipboardManager {
         // 添加區塊數據
         session.addChunk(chunkIndex, chunkData);
 
-        player.sendActionBar(mm.deserialize("<blue>Receiving clipboard... <gray>(" + session.getChunkCount() + "</gray>/<yellow>" + session.getTotalChunks() + "</yellow>)</blue>"));
+        long actionBarDisplay = session.getTotalChunks() / Constants.THREAD_DELAY_MS + 1L;
+
+        // 減少發送至玩家的頻率
+        if (session.getChunkCount() % actionBarDisplay == 0) {
+            player.sendActionBar(mm.deserialize("<blue>Receiving clipboard... <gray>(" + session.getChunkCount() + "</gray>/<yellow>" + session.getTotalChunks() + "</yellow>)</blue>"));
+        }
 
         // 檢查是否完成
         if (session.isComplete()) {
@@ -186,15 +194,19 @@ public class ClipboardManager {
     }
 
     private void sendChunks(Player player, String sessionId, byte[] data, int totalChunks) {
-        //wait 10ms
-        try {
-            Thread.sleep(Constants.THREAD_DELAY_MS);
-        } catch (InterruptedException e) {
-            e.fillInStackTrace();
-        }
+
+        long actionBarDisplay = totalChunks / Constants.THREAD_DELAY_MS + 1L;
 
         try {
             for (int i = 0; i < totalChunks; i++) {
+
+                try {
+                    Thread.sleep(Constants.THREAD_DELAY_MS);
+                } catch (InterruptedException e) {
+                    e.fillInStackTrace();
+                }
+
+
                 // 計算當前區塊的起始和結束位置
                 int start = i * Constants.DEFAULT_CHUNK_SIZE;
                 int end = Math.min(start + Constants.DEFAULT_CHUNK_SIZE, data.length);
@@ -214,8 +226,12 @@ public class ClipboardManager {
 
                 player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
 
-                if (i + 1 < totalChunks) {
-                    player.sendActionBar(mm.deserialize("<blue>Uploading clipboard... <gray>(" + (i + 1) + "</gray>/<yellow>" + totalChunks + "</yellow>)</blue>"));
+                int currentChunk = i + 1;
+                if (currentChunk < totalChunks) {
+                    // 嘗試降低發送至玩家的頻率
+                    if (currentChunk % actionBarDisplay == 0 || currentChunk >= actionBarDisplay * Constants.THREAD_DELAY_MS) {
+                        player.sendActionBar(mm.deserialize("<blue>Uploading clipboard... <gray>(" + currentChunk + "</gray>/<yellow>" + totalChunks + "</yellow>)</blue>"));
+                    }
                 } else {
                     setPlayerTransferring(player.getUniqueId(), false);
                     player.sendActionBar(mm.deserialize("<green>Clipboard uploaded!</green>"));
@@ -405,6 +421,13 @@ public class ClipboardManager {
 
             uploadClipboard(player, serializedClipboard);
         }
+    }
+
+    public void sendStopMessage(Player player) {
+        ByteArrayDataOutput out = ByteStreams.newDataOutput();
+        out.writeUTF("ClipboardStop");
+        out.writeUTF(player.getUniqueId().toString());
+        player.sendPluginMessage(plugin, Constants.CHANNEL, out.toByteArray());
     }
 
     public void setPlayerTransferring(UUID playerUuid, boolean transferring) {

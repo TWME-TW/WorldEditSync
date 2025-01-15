@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 @Plugin(
         id = "worldeditsync",
         name = "WorldEditSync",
-        version = "0.0.5",
+        version = "0.0.6",
         description = "Sync WorldEdit clipboard across servers",
         authors = {"TWME"}
 )

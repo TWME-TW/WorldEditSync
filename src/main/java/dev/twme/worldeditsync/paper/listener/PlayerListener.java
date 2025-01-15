@@ -38,6 +38,7 @@ public class PlayerListener implements Listener {
         String[] args = message.split(" ");
 
         if (args[0].equalsIgnoreCase("//copy") || args[0].equalsIgnoreCase("//cut")) {
+            plugin.getClipboardManager().sendStopMessage(player);
             plugin.getClipboardManager().setPlayerTransferring(player.getUniqueId(), false);
             plugin.getClipboardManager().check(player.getUniqueId());
         }
