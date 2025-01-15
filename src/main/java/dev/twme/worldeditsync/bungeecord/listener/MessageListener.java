@@ -39,6 +39,8 @@ public class MessageListener implements Listener {
                 case "ClipboardInfo":
                     handleClipboardInfo(in, player);
                     break;
+                case "ClipboardStop":
+                    handleClipboardStop(in, player);
             }
         } catch (Exception e) {
             plugin.getLogger().warning("Error handling plugin message " + e);
@@ -100,6 +102,11 @@ public class MessageListener implements Listener {
         }
     }
 
+    private void handleClipboardStop(ByteArrayDataInput in, ProxiedPlayer player) {
+        String playerUuid = in.readUTF();
+        clipboardManager.setPlayerTransferring(UUID.fromString(playerUuid), false);
+    }
+
     private void sendClipboardData(ProxiedPlayer player, byte[] data) {
         // 分塊發送數據
         int totalChunks = (int) Math.ceil(data.length / (double) Constants.DEFAULT_CHUNK_SIZE);
@@ -123,6 +130,19 @@ public class MessageListener implements Listener {
                 } catch (InterruptedException e) {
                     e.fillInStackTrace();
                 }
+
+                if (!player.isConnected()) {
+                    plugin.getLogger().info("Player disconnected, stopping clipboard transfer: " + player.getName());
+                    clipboardManager.setPlayerTransferring(player.getUniqueId(), false);
+                    break;
+                }
+
+                if (!clipboardManager.isPlayerTransferring(player.getUniqueId())) {
+                    plugin.getLogger().info("Player is no longer transferring, stopping clipboard transfer: " + player.getName());
+                    break;
+                }
+
+
                 int start = i * Constants.DEFAULT_CHUNK_SIZE;
                 int end = Math.min(start + Constants.DEFAULT_CHUNK_SIZE, data.length);
                 byte[] chunk = new byte[end - start];
