@@ -123,7 +123,6 @@ public class PluginMessageHandler implements PluginMessageListener {
     }
 
     private void handleClipboardDownload(Player player, ByteArrayDataInput in) {
-        // plugin.getLogger().info("處理 ClipboardDownload");
         try {
             String playerUuid = in.readUTF();
             if (!playerUuid.equals(player.getUniqueId().toString())) {
