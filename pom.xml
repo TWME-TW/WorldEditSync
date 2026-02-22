@@ -98,5 +98,10 @@
       <version>1.21-R0.4</version>
       <scope>provided</scope>
     </dependency>
+    <dependency>
+      <groupId>io.minio</groupId>
+      <artifactId>minio</artifactId>
+      <version>8.5.17</version>
+    </dependency>
   </dependencies>
 </project>

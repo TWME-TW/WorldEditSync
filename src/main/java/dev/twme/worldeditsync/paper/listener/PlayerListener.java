@@ -30,11 +30,13 @@ public class PlayerListener implements Listener {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
 
-        // 如有進行中的傳輸，通知 Proxy 取消
-        SyncState state = plugin.getClipboardManager().getState(uuid);
-        if (state == SyncState.UPLOADING || state == SyncState.DOWNLOADING) {
-            player.sendPluginMessage(plugin, Constants.CHANNEL,
-                    plugin.getMessageCipher().encrypt(TransferProtocol.createCancel(uuid.toString())));
+        // 如有進行中的傳輸，通知 Proxy 取消（僅 Proxy 模式）
+        if (plugin.isProxyMode()) {
+            SyncState state = plugin.getClipboardManager().getState(uuid);
+            if (state == SyncState.UPLOADING || state == SyncState.DOWNLOADING) {
+                player.sendPluginMessage(plugin, Constants.CHANNEL,
+                        plugin.getMessageCipher().encrypt(TransferProtocol.createCancel(uuid.toString())));
+            }
         }
 
         plugin.getClipboardManager().removePlayer(uuid);
@@ -50,8 +52,8 @@ public class PlayerListener implements Listener {
             UUID uuid = player.getUniqueId();
             SyncState state = plugin.getClipboardManager().getState(uuid);
 
-            // 取消進行中的下載或上傳
-            if (state == SyncState.DOWNLOADING || state == SyncState.UPLOADING) {
+            // 取消進行中的下載或上傳（僅 Proxy 模式需要通知 Proxy）
+            if (plugin.isProxyMode() && (state == SyncState.DOWNLOADING || state == SyncState.UPLOADING)) {
                 player.sendPluginMessage(plugin, Constants.CHANNEL,
                         plugin.getMessageCipher().encrypt(TransferProtocol.createCancel(uuid.toString())));
             }

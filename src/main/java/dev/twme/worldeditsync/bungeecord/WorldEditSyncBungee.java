@@ -1,5 +1,11 @@
 package dev.twme.worldeditsync.bungeecord;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.util.concurrent.TimeUnit;
+
 import dev.twme.worldeditsync.bungeecord.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.bungeecord.listener.MessageListener;
 import dev.twme.worldeditsync.bungeecord.listener.PlayerListener;
@@ -13,12 +19,6 @@ import net.md_5.bungee.config.Configuration;
 import net.md_5.bungee.config.ConfigurationProvider;
 import net.md_5.bungee.config.YamlConfiguration;
 import net.md_5.bungee.event.EventHandler;
-
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.util.concurrent.TimeUnit;
 
 public class WorldEditSyncBungee extends Plugin implements Listener {
     private ClipboardManager clipboardManager;
@@ -73,6 +73,14 @@ public class WorldEditSyncBungee extends Plugin implements Listener {
             } else {
                 getLogger().warning("Message encryption is DISABLED. Set 'token' in config.yml for security.");
             }
+
+            // 載入可覆寫的傳輸常數（必須與所有伺服器保持一致）
+            Constants.CHUNK_SIZE = config.getInt("transfer.chunk-size", 30000);
+            Constants.SESSION_TIMEOUT_MS = config.getLong("transfer.session-timeout-ms", 30000L);
+            Constants.MAX_CLIPBOARD_SIZE = config.getInt("transfer.max-clipboard-size", 50 * 1024 * 1024);
+            Constants.CHUNK_SEND_DELAY_MS = config.getLong("transfer.chunk-send-delay-ms", 5L);
+            Constants.WATCHER_INTERVAL_TICKS = config.getLong("transfer.watcher-interval-ticks", 20L);
+            Constants.WATCHER_INITIAL_DELAY_TICKS = config.getLong("transfer.watcher-initial-delay-ticks", 40L);
         } catch (IOException e) {
             getLogger().warning("Failed to load config: " + e.getMessage());
             this.messageCipher = new MessageCipher("");
