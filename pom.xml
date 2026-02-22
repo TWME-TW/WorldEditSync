@@ -6,7 +6,7 @@
 
   <groupId>dev.twme</groupId>
   <artifactId>WorldEditSync</artifactId>
-  <version>0.0.7</version>
+  <version>0.1.0</version>
   <packaging>jar</packaging>
 
   <name>WorldEditSync</name>
@@ -102,6 +102,7 @@
       <groupId>io.minio</groupId>
       <artifactId>minio</artifactId>
       <version>8.5.17</version>
+      <scope>provided</scope>
     </dependency>
   </dependencies>
 </project>

@@ -26,7 +26,7 @@ import dev.twme.worldeditsync.velocity.listener.PlayerListener;
 @Plugin(
         id = "worldeditsync",
         name = "WorldEditSync",
-        version = "0.0.7",
+        version = "0.1.0",
         description = "Sync WorldEdit clipboard across servers",
         authors = {"TWME"}
 )
