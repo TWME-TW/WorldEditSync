@@ -46,7 +46,7 @@ public class PlayerListener implements Listener {
         String command = event.getMessage().split(" ")[0].toLowerCase();
 
         // 當玩家執行 //copy 或 //cut 時，取消進行中的傳輸並啟用偵測
-        if (command.equals("//copy") || command.equals("//cut")) {
+        if (command.contains("//copy") || command.contains("//cut") || command.contains("//rotate")) {
             UUID uuid = player.getUniqueId();
             SyncState state = plugin.getClipboardManager().getState(uuid);
 
