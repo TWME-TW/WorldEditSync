@@ -37,7 +37,16 @@ public class PluginMessageHandler implements PluginMessageListener {
         if (!channel.equals(Constants.CHANNEL)) return;
 
         try {
-            ByteArrayDataInput in = ByteStreams.newDataInput(message);
+            // 解密訊息
+            byte[] decrypted;
+            try {
+                decrypted = plugin.getMessageCipher().decrypt(message);
+            } catch (SecurityException e) {
+                plugin.getLogger().warning("Received invalid/unauthorized message from " + player.getName() + ": " + e.getMessage());
+                return;
+            }
+
+            ByteArrayDataInput in = ByteStreams.newDataInput(decrypted);
             String subChannel = in.readUTF();
 
             switch (subChannel) {
@@ -73,7 +82,7 @@ public class PluginMessageHandler implements PluginMessageListener {
             plugin.getLogger().info("Hash mismatch for " + player.getName() + ", requesting download");
             plugin.getClipboardManager().setState(player.getUniqueId(), SyncState.DOWNLOADING);
             player.sendPluginMessage(plugin, Constants.CHANNEL,
-                    TransferProtocol.createDownloadRequest(uuid));
+                    plugin.getMessageCipher().encrypt(TransferProtocol.createDownloadRequest(uuid)));
         }
     }
 

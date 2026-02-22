@@ -4,6 +4,7 @@ import dev.twme.worldeditsync.bungeecord.WorldEditSyncBungee;
 import dev.twme.worldeditsync.bungeecord.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.common.Constants;
 import dev.twme.worldeditsync.common.clipboard.ClipboardData;
+import dev.twme.worldeditsync.common.crypto.MessageCipher;
 import dev.twme.worldeditsync.common.transfer.TransferProtocol;
 import net.md_5.bungee.api.connection.ProxiedPlayer;
 import net.md_5.bungee.api.event.ServerSwitchEvent;
@@ -38,11 +39,13 @@ public class PlayerListener implements Listener {
             if (data != null) {
                 // 發送 hash 檢查至新伺服器
                 player.getServer().getInfo().sendData(Constants.CHANNEL,
-                        TransferProtocol.createHashCheck(player.getUniqueId().toString(), data.getHash()));
+                        plugin.getMessageCipher().encrypt(
+                                TransferProtocol.createHashCheck(player.getUniqueId().toString(), data.getHash())));
             } else {
                 // 通知新伺服器無剪貼簿資料
                 player.getServer().getInfo().sendData(Constants.CHANNEL,
-                        TransferProtocol.createNoData(player.getUniqueId().toString()));
+                        plugin.getMessageCipher().encrypt(
+                                TransferProtocol.createNoData(player.getUniqueId().toString())));
             }
         }, 1, TimeUnit.SECONDS);
     }

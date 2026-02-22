@@ -34,7 +34,7 @@ public class PlayerListener implements Listener {
         SyncState state = plugin.getClipboardManager().getState(uuid);
         if (state == SyncState.UPLOADING || state == SyncState.DOWNLOADING) {
             player.sendPluginMessage(plugin, Constants.CHANNEL,
-                    TransferProtocol.createCancel(uuid.toString()));
+                    plugin.getMessageCipher().encrypt(TransferProtocol.createCancel(uuid.toString())));
         }
 
         plugin.getClipboardManager().removePlayer(uuid);
@@ -53,7 +53,7 @@ public class PlayerListener implements Listener {
             // 取消進行中的下載或上傳
             if (state == SyncState.DOWNLOADING || state == SyncState.UPLOADING) {
                 player.sendPluginMessage(plugin, Constants.CHANNEL,
-                        TransferProtocol.createCancel(uuid.toString()));
+                        plugin.getMessageCipher().encrypt(TransferProtocol.createCancel(uuid.toString())));
             }
 
             // 確保狀態為 IDLE，讓 ClipboardWatcher 偵測到新的剪貼簿

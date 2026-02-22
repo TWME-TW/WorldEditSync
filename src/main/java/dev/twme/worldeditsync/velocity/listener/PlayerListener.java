@@ -38,13 +38,15 @@ public class PlayerListener {
             if (data != null) {
                 // 發送 hash 檢查至新伺服器
                 event.getServer().sendPluginMessage(CHANNEL_ID,
-                        TransferProtocol.createHashCheck(
-                                event.getPlayer().getUniqueId().toString(), data.getHash()));
+                        plugin.getMessageCipher().encrypt(
+                                TransferProtocol.createHashCheck(
+                                        event.getPlayer().getUniqueId().toString(), data.getHash())));
             } else {
                 // 通知新伺服器無剪貼簿資料
                 event.getServer().sendPluginMessage(CHANNEL_ID,
-                        TransferProtocol.createNoData(
-                                event.getPlayer().getUniqueId().toString()));
+                        plugin.getMessageCipher().encrypt(
+                                TransferProtocol.createNoData(
+                                        event.getPlayer().getUniqueId().toString())));
             }
         }).delay(1, TimeUnit.SECONDS).schedule();
     }

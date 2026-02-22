@@ -37,7 +37,16 @@ public class MessageListener implements Listener {
      */
     public void onPluginMessageReceived(ProxiedPlayer player, byte[] message) {
         try {
-            ByteArrayDataInput in = ByteStreams.newDataInput(message);
+            // 解密訊息
+            byte[] decrypted;
+            try {
+                decrypted = plugin.getMessageCipher().decrypt(message);
+            } catch (SecurityException e) {
+                plugin.getLogger().warning("Received invalid/unauthorized message from " + player.getName() + ": " + e.getMessage());
+                return;
+            }
+
+            ByteArrayDataInput in = ByteStreams.newDataInput(decrypted);
             String subChannel = in.readUTF();
 
             switch (subChannel) {
@@ -127,7 +136,7 @@ public class MessageListener implements Listener {
 
         if (clipboardData == null || clipboardData.getData() == null) {
             player.getServer().getInfo().sendData(Constants.CHANNEL,
-                    TransferProtocol.createNoData(uuid));
+                    plugin.getMessageCipher().encrypt(TransferProtocol.createNoData(uuid)));
             return;
         }
 
@@ -144,8 +153,9 @@ public class MessageListener implements Listener {
 
         // 發送下載開始訊息
         player.getServer().getInfo().sendData(Constants.CHANNEL,
-                TransferProtocol.createDownloadBegin(
-                        playerUuid.toString(), sessionId, totalChunks, clipboardBytes.length, data.getHash()));
+                plugin.getMessageCipher().encrypt(
+                        TransferProtocol.createDownloadBegin(
+                                playerUuid.toString(), sessionId, totalChunks, clipboardBytes.length, data.getHash())));
 
         // 非同步發送所有 chunk
         plugin.getProxy().getScheduler().runAsync(plugin, () -> {
@@ -159,7 +169,8 @@ public class MessageListener implements Listener {
                     System.arraycopy(clipboardBytes, offset, chunk, 0, length);
 
                     player.getServer().getInfo().sendData(Constants.CHANNEL,
-                            TransferProtocol.createDownloadChunk(sessionId, i, chunk));
+                            plugin.getMessageCipher().encrypt(
+                                    TransferProtocol.createDownloadChunk(sessionId, i, chunk)));
 
                     if (i < totalChunks - 1) {
                         Thread.sleep(Constants.CHUNK_SEND_DELAY_MS);

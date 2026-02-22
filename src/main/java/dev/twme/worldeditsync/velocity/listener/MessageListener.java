@@ -48,7 +48,16 @@ public class MessageListener {
         if (player == null) return;
 
         try {
-            ByteArrayDataInput in = ByteStreams.newDataInput(event.getData());
+            // 解密訊息
+            byte[] decrypted;
+            try {
+                decrypted = plugin.getMessageCipher().decrypt(event.getData());
+            } catch (SecurityException e) {
+                plugin.getLogger().warn("Received invalid/unauthorized message from {}: {}", player.getUsername(), e.getMessage());
+                return;
+            }
+
+            ByteArrayDataInput in = ByteStreams.newDataInput(decrypted);
             String subChannel = in.readUTF();
 
             switch (subChannel) {
@@ -138,7 +147,8 @@ public class MessageListener {
 
         if (clipboardData == null || clipboardData.getData() == null) {
             player.getCurrentServer().ifPresent(server ->
-                    server.sendPluginMessage(CHANNEL_ID, TransferProtocol.createNoData(uuid)));
+                    server.sendPluginMessage(CHANNEL_ID,
+                            plugin.getMessageCipher().encrypt(TransferProtocol.createNoData(uuid))));
             return;
         }
 
@@ -156,8 +166,9 @@ public class MessageListener {
         // 發送下載開始訊息
         player.getCurrentServer().ifPresent(server ->
                 server.sendPluginMessage(CHANNEL_ID,
-                        TransferProtocol.createDownloadBegin(
-                                playerUuid.toString(), sessionId, totalChunks, clipboardBytes.length, data.getHash())));
+                        plugin.getMessageCipher().encrypt(
+                                TransferProtocol.createDownloadBegin(
+                                        playerUuid.toString(), sessionId, totalChunks, clipboardBytes.length, data.getHash()))));
 
         // 非同步發送所有 chunk
         plugin.getServer().getScheduler().buildTask(plugin, () -> {
@@ -178,7 +189,8 @@ public class MessageListener {
                     byte[] chunk = new byte[length];
                     System.arraycopy(clipboardBytes, offset, chunk, 0, length);
 
-                    byte[] chunkMessage = TransferProtocol.createDownloadChunk(sessionId, i, chunk);
+                    byte[] chunkMessage = plugin.getMessageCipher().encrypt(
+                            TransferProtocol.createDownloadChunk(sessionId, i, chunk));
                     player.getCurrentServer().ifPresent(server ->
                             server.sendPluginMessage(CHANNEL_ID, chunkMessage));
 

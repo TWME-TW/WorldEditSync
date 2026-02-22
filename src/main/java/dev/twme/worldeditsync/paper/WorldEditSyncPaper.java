@@ -1,6 +1,7 @@
 package dev.twme.worldeditsync.paper;
 
 import dev.twme.worldeditsync.common.Constants;
+import dev.twme.worldeditsync.common.crypto.MessageCipher;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardWatcher;
 import dev.twme.worldeditsync.paper.listener.PlayerListener;
@@ -13,6 +14,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
     private WorldEditHelper worldEditHelper;
     private PluginMessageHandler messageHandler;
     private ClipboardWatcher clipboardWatcher;
+    private MessageCipher messageCipher;
 
     @Override
     public void onEnable() {
@@ -23,6 +25,16 @@ public class WorldEditSyncPaper extends JavaPlugin {
                 getLogger().info("There is a new update available. Download it here: https://www.spigotmc.org/resources/121682/");
             }
         });
+
+        // 載入設定
+        saveDefaultConfig();
+        String token = getConfig().getString("token", "");
+        this.messageCipher = new MessageCipher(token);
+        if (messageCipher.isEnabled()) {
+            getLogger().info("Message encryption is ENABLED.");
+        } else {
+            getLogger().warning("Message encryption is DISABLED. Set 'token' in config.yml for security.");
+        }
 
         // 初始化組件
         this.clipboardManager = new ClipboardManager(this);
@@ -64,5 +76,9 @@ public class WorldEditSyncPaper extends JavaPlugin {
 
     public WorldEditHelper getWorldEditHelper() {
         return worldEditHelper;
+    }
+
+    public MessageCipher getMessageCipher() {
+        return messageCipher;
     }
 }

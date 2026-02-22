@@ -1,0 +1,6 @@
+# WorldEditSync Configuration
+
+# Token for encrypting plugin messages between servers.
+# This MUST be the same on all Paper servers and the Proxy (BungeeCord/Velocity).
+# Leave empty to disable encryption (not recommended in production).
+token: ""

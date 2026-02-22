@@ -94,7 +94,8 @@ public class ClipboardWatcher extends BukkitRunnable {
 
         // 發送上傳開始訊息
         player.sendPluginMessage(plugin, Constants.CHANNEL,
-                TransferProtocol.createUploadBegin(uuid.toString(), sessionId, totalChunks, data.length, hash));
+                plugin.getMessageCipher().encrypt(
+                        TransferProtocol.createUploadBegin(uuid.toString(), sessionId, totalChunks, data.length, hash)));
 
         // 非同步發送所有 chunk
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
@@ -109,7 +110,8 @@ public class ClipboardWatcher extends BukkitRunnable {
                     System.arraycopy(data, offset, chunk, 0, length);
 
                     player.sendPluginMessage(plugin, Constants.CHANNEL,
-                            TransferProtocol.createUploadChunk(sessionId, i, chunk));
+                            plugin.getMessageCipher().encrypt(
+                                    TransferProtocol.createUploadChunk(sessionId, i, chunk)));
 
                     if (i < totalChunks - 1) {
                         Thread.sleep(Constants.CHUNK_SEND_DELAY_MS);
