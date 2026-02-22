@@ -1,18 +1,22 @@
 package dev.twme.worldeditsync.bungeecord.listener;
 
+import dev.twme.worldeditsync.bungeecord.WorldEditSyncBungee;
+import dev.twme.worldeditsync.bungeecord.clipboard.ClipboardManager;
+import dev.twme.worldeditsync.common.Constants;
+import dev.twme.worldeditsync.common.clipboard.ClipboardData;
+import dev.twme.worldeditsync.common.crypto.MessageCipher;
+import dev.twme.worldeditsync.common.transfer.TransferProtocol;
 import net.md_5.bungee.api.connection.ProxiedPlayer;
-import net.md_5.bungee.api.event.ServerConnectedEvent;
 import net.md_5.bungee.api.event.ServerSwitchEvent;
 import net.md_5.bungee.api.plugin.Listener;
 import net.md_5.bungee.event.EventHandler;
-import dev.twme.worldeditsync.common.Constants;
-import dev.twme.worldeditsync.bungeecord.WorldEditSyncBungee;
-import dev.twme.worldeditsync.bungeecord.clipboard.ClipboardManager;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
 
 import java.util.concurrent.TimeUnit;
 
+/**
+ * BungeeCord 端的玩家事件監聽器。
+ * 當玩家切換伺服器時，發送 hash 檢查或通知無資料。
+ */
 public class PlayerListener implements Listener {
     private final WorldEditSyncBungee plugin;
     private final ClipboardManager clipboardManager;
@@ -24,42 +28,25 @@ public class PlayerListener implements Listener {
 
     @EventHandler
     public void onServerSwitch(ServerSwitchEvent event) {
-        // 當玩家連接到新服務器時，檢查是否有可用的剪貼簿數據
-        handleServerUpdate(event.getPlayer());
-    }
-
-    private void handleServerUpdate(ProxiedPlayer player) {
-        ClipboardManager.ClipboardData clipboardData =
-                clipboardManager.getClipboard(player.getUniqueId());
+        ProxiedPlayer player = event.getPlayer();
         clipboardManager.setPlayerTransferring(player.getUniqueId(), false);
 
+        // 延遲 1 秒確保新伺服器連線已就緒
         plugin.getProxy().getScheduler().schedule(plugin, () -> {
-            if (clipboardData != null) {
-                // 發送剪貼簿信息到新服務器
-                ByteArrayDataOutput out = ByteStreams.newDataOutput();
-                out.writeUTF("ClipboardInfo");
-                out.writeUTF(player.getUniqueId().toString());
-                out.writeUTF(clipboardData.getHash());
+            if (!player.isConnected() || player.getServer() == null) return;
 
-                player.getServer().getInfo().sendData(Constants.CHANNEL, out.toByteArray());
+            ClipboardData data = clipboardManager.getClipboard(player.getUniqueId());
+            if (data != null) {
+                // 發送 hash 檢查至新伺服器
+                player.getServer().getInfo().sendData(Constants.CHANNEL,
+                        plugin.getMessageCipher().encrypt(
+                                TransferProtocol.createHashCheck(player.getUniqueId().toString(), data.getHash())));
             } else {
-                // 請求從BungeeCord下載剪貼簿
-                noticeNoClipboardData(player);
+                // 通知新伺服器無剪貼簿資料
+                player.getServer().getInfo().sendData(Constants.CHANNEL,
+                        plugin.getMessageCipher().encrypt(
+                                TransferProtocol.createNoData(player.getUniqueId().toString())));
             }
         }, 1, TimeUnit.SECONDS);
-    }
-
-    @EventHandler
-    public void onServerConnected(ServerConnectedEvent event) {
-        // 當玩家連接到新服務器時，檢查是否有可用的剪貼簿數據
-        handleServerUpdate(event.getPlayer());
-    }
-
-    private void noticeNoClipboardData(ProxiedPlayer player) {
-        ByteArrayDataOutput out = ByteStreams.newDataOutput();
-        out.writeUTF("NoClipboardData");
-        out.writeUTF(player.getUniqueId().toString());
-
-        player.getServer().getInfo().sendData(Constants.CHANNEL, out.toByteArray());
     }
 }

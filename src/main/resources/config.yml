@@ -1,0 +1,47 @@
+# WorldEditSync Configuration
+
+# Sync mode: "proxy" or "s3"
+# - proxy: Sync via BungeeCord/Velocity proxy using Plugin Messages (requires proxy plugin).
+# - s3: Sync via S3-compatible storage (e.g. MinIO). No proxy plugin needed.
+sync-mode: "proxy"
+
+# Token for encrypting data (AES-256-GCM).
+# - proxy mode: encrypts Plugin Messages between Paper and Proxy.
+# - s3 mode: encrypts clipboard data before uploading to S3.
+# This MUST be the same on all Paper servers and the Proxy (BungeeCord/Velocity).
+# Leave empty to disable encryption (not recommended in production).
+token: ""
+
+# S3 storage settings (only used when sync-mode is "s3")
+s3:
+  # S3-compatible endpoint URL (e.g. MinIO server address)
+  endpoint: "http://localhost:9000"
+  # Access key (username)
+  access-key: "minioadmin"
+  # Secret key (password)
+  secret-key: "minioadmin"
+  # Bucket name to store clipboard data
+  bucket: "worldeditsync"
+  # Region (optional, can leave empty for MinIO)
+  region: ""
+  # How often to check S3 for clipboard updates (in ticks, 20 ticks = 1 second)
+  check-interval: 40
+
+# ============================================================
+# Advanced transfer settings
+# WARNING: These values MUST be identical on ALL servers and proxies.
+#          Mismatched values will cause sync failures.
+# ============================================================
+transfer:
+  # Size of each chunk in bytes (~30KB, must stay below 32KB plugin message limit)
+  chunk-size: 30000
+  # Transfer session timeout in milliseconds
+  session-timeout-ms: 30000
+  # Maximum clipboard size in bytes (default: 50MB)
+  max-clipboard-size: 52428800
+  # Delay between sending chunks in milliseconds
+  chunk-send-delay-ms: 5
+  # Clipboard watcher interval in ticks (20 ticks = 1 second)
+  watcher-interval-ticks: 20
+  # Clipboard watcher initial delay in ticks
+  watcher-initial-delay-ticks: 40

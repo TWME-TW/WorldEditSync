@@ -5,6 +5,9 @@ api-version: '1.13'
 depend:
   - WorldEdit
 description: Sync WorldEdit clipboard across servers
+libraries:
+  - io.minio:minio:8.5.17
+
 permissions:
   worldeditsync.sync:
     description: Sync WorldEdit clipboard across servers

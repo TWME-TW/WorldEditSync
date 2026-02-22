@@ -4,17 +4,21 @@ import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import dev.twme.worldeditsync.common.Constants;
+import dev.twme.worldeditsync.common.clipboard.ClipboardData;
+import dev.twme.worldeditsync.common.transfer.TransferProtocol;
 import dev.twme.worldeditsync.velocity.WorldEditSyncVelocity;
 import dev.twme.worldeditsync.velocity.clipboard.ClipboardManager;
 
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
-
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Velocity 端的玩家事件監聽器。
+ * 當玩家切換伺服器時，發送 hash 檢查或通知無資料。
+ */
 public class PlayerListener {
     private final WorldEditSyncVelocity plugin;
     private final ClipboardManager clipboardManager;
+    private static final MinecraftChannelIdentifier CHANNEL_ID = MinecraftChannelIdentifier.from(Constants.CHANNEL);
 
     public PlayerListener(WorldEditSyncVelocity plugin) {
         this.plugin = plugin;
@@ -23,39 +27,27 @@ public class PlayerListener {
 
     @Subscribe
     public void onServerConnected(ServerConnectedEvent event) {
-        // 當玩家連接到新服務器時，檢查是否有可用的剪貼簿數據
-        ClipboardManager.ClipboardData clipboardData =
-                clipboardManager.getClipboard(event.getPlayer().getUniqueId());
         clipboardManager.setPlayerTransferring(event.getPlayer().getUniqueId(), false);
 
+        // 延遲 1 秒確保新伺服器連線已就緒
         plugin.getServer().getScheduler().buildTask(plugin, () -> {
-            if (clipboardData != null) {
-                // 發送剪貼簿信息到新服務器
-                ByteArrayDataOutput out = ByteStreams.newDataOutput();
-                out.writeUTF("ClipboardInfo");
-                out.writeUTF(event.getPlayer().getUniqueId().toString());
-                out.writeUTF(clipboardData.getHash());
+            if (!event.getPlayer().isActive()) return;
+            if (event.getPlayer().getCurrentServer().isEmpty()) return;
 
-                event.getServer().sendPluginMessage(
-                        MinecraftChannelIdentifier.from(Constants.CHANNEL),
-                        out.toByteArray()
-                );
+            ClipboardData data = clipboardManager.getClipboard(event.getPlayer().getUniqueId());
+            if (data != null) {
+                // 發送 hash 檢查至新伺服器
+                event.getServer().sendPluginMessage(CHANNEL_ID,
+                        plugin.getMessageCipher().encrypt(
+                                TransferProtocol.createHashCheck(
+                                        event.getPlayer().getUniqueId().toString(), data.getHash())));
             } else {
-
-                // 請求從Velocity下載剪貼簿
-                noticeNoClipboardData(event);
+                // 通知新伺服器無剪貼簿資料
+                event.getServer().sendPluginMessage(CHANNEL_ID,
+                        plugin.getMessageCipher().encrypt(
+                                TransferProtocol.createNoData(
+                                        event.getPlayer().getUniqueId().toString())));
             }
         }).delay(1, TimeUnit.SECONDS).schedule();
-    }
-
-    private void noticeNoClipboardData(ServerConnectedEvent event) {
-        ByteArrayDataOutput out = ByteStreams.newDataOutput();
-        out.writeUTF("NoClipboardData");
-        out.writeUTF(event.getPlayer().getUniqueId().toString());
-
-        event.getServer().sendPluginMessage(
-                MinecraftChannelIdentifier.from(Constants.CHANNEL),
-                out.toByteArray()
-        );
     }
 }

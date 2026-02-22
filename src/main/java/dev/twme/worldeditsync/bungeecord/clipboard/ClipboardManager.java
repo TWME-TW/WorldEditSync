@@ -1,70 +1,91 @@
 package dev.twme.worldeditsync.bungeecord.clipboard;
 
-import java.util.UUID;
-
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
-
-import dev.twme.worldeditsync.bungeecord.WorldEditSyncBungee;
+import com.google.common.hash.Hashing;
 import dev.twme.worldeditsync.common.Constants;
-import dev.twme.worldeditsync.common.clipboard.BaseClipboardManager;
-import net.md_5.bungee.api.config.ServerInfo;
-import net.md_5.bungee.api.connection.ProxiedPlayer;
+import dev.twme.worldeditsync.common.clipboard.ClipboardData;
+import dev.twme.worldeditsync.common.transfer.TransferSession;
 
-public class ClipboardManager extends BaseClipboardManager {
-    private final WorldEditSyncBungee plugin;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
-    public ClipboardManager(WorldEditSyncBungee plugin) {
-        this.plugin = plugin;
+/**
+ * BungeeCord 端的剪貼簿管理器。
+ * 負責：
+ * - 儲存每個玩家的剪貼簿資料（序列化的 byte[] + hash）
+ * - 管理上傳會話（接收來自 Paper 的分塊上傳）
+ * - 管理傳輸鎖（防止並發操作）
+ */
+public class ClipboardManager {
+
+    /** 玩家的剪貼簿儲存 (playerUUID → ClipboardData) */
+    private final Map<UUID, ClipboardData> clipboardStorage = new ConcurrentHashMap<>();
+
+    /** 活躍的上傳會話 (sessionId → TransferSession) */
+    private final Map<String, TransferSession> uploadSessions = new ConcurrentHashMap<>();
+
+    /** 玩家傳輸鎖 */
+    private final Map<UUID, Boolean> playerTransferring = new ConcurrentHashMap<>();
+
+    // ==================== 剪貼簿儲存 ====================
+
+    public void storeClipboard(UUID playerUuid, byte[] data, String hash) {
+        clipboardStorage.put(playerUuid, new ClipboardData(data, hash));
     }
 
-    public void broadcastClipboardUpdate(UUID playerUuid, byte[] data) {
-        ProxiedPlayer targetPlayer = plugin.getProxy().getPlayer(playerUuid);
-        if (targetPlayer == null) return;
-
-        for (ServerInfo server : plugin.getProxy().getServers().values()) {
-            if (!targetPlayer.getServer().isConnected()) {
-                // 玩家不在線上
-                return;
-            }
-            if (!server.equals(targetPlayer.getServer().getInfo())) {
-                // 發送到其他服務器
-                server.sendData(Constants.CHANNEL, createUpdateMessage(playerUuid, data));
-            }
-        }
+    public ClipboardData getClipboard(UUID playerUuid) {
+        return clipboardStorage.get(playerUuid);
     }
 
-    private byte[] createUpdateMessage(UUID playerUuid, byte[] data) {
-        ByteArrayDataOutput out =
-                ByteStreams.newDataOutput();
-        out.writeUTF("ClipboardUpdate");
-        out.writeUTF(playerUuid.toString());
-        out.write(data);
-        return out.toByteArray();
+    // ==================== 上傳會話 ====================
+
+    public void createUploadSession(String sessionId, UUID playerUuid, int totalChunks, int totalBytes, String hash) {
+        uploadSessions.put(sessionId, new TransferSession(playerUuid, sessionId, totalChunks, totalBytes, hash));
     }
 
-    @Override
-    protected void handleSessionAssemblyFailure(String sessionId) {
-        plugin.getLogger().warning("Failed to assemble data: " + sessionId);
+    public TransferSession getUploadSession(String sessionId) {
+        return uploadSessions.get(sessionId);
     }
 
-    @Override
-    protected void handleSessionComplete(String sessionId, UUID playerUuid, byte[] fullData, String hash) {
-        plugin.getLogger().info("Finished receiving clipboard data: " + sessionId);
-        // 儲存剪貼簿
-        storeClipboard(playerUuid, fullData, hash);
-
-        // 儲存並廣播到其他服務器
-        // broadcastClipboardUpdate(playerUuid, fullData);
+    public void removeUploadSession(String sessionId) {
+        uploadSessions.remove(sessionId);
     }
 
-    @Override
-    protected void handleSessionNotFound(String sessionId) {
-        plugin.getLogger().warning("Session not found: " + sessionId);
+    // ==================== 傳輸鎖 ====================
+
+    public boolean isPlayerTransferring(UUID playerUuid) {
+        return playerTransferring.getOrDefault(playerUuid, false);
     }
 
-    @Override
-    protected void handleBroadcastClipboardUpdate(UUID playerUuid, byte[] data) {
-        // 這個方法在 BungeeCord 中不使用，因為有專門的 broadcastClipboardUpdate 方法
+    public void setPlayerTransferring(UUID playerUuid, boolean transferring) {
+        playerTransferring.put(playerUuid, transferring);
+    }
+
+    // ==================== 維護 ====================
+
+    /**
+     * 清理過期的上傳會話。
+     */
+    public void cleanupExpiredSessions() {
+        long now = System.currentTimeMillis();
+        uploadSessions.entrySet().removeIf(e ->
+                now - e.getValue().getLastUpdateTime() > Constants.SESSION_TIMEOUT_MS);
+    }
+
+    /**
+     * 清理所有資料。
+     */
+    public void cleanup() {
+        clipboardStorage.clear();
+        uploadSessions.clear();
+        playerTransferring.clear();
+    }
+
+    /**
+     * 使用 SHA-256 計算資料的雜湊值。
+     */
+    public static String computeHash(byte[] data) {
+        if (data == null || data.length == 0) return "";
+        return Hashing.sha256().hashBytes(data).toString();
     }
 }
