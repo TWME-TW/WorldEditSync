@@ -1,20 +1,24 @@
 # WorldEditSync
 
-WorldEditSync is a Minecraft plugin that synchronizes WorldEdit (FastAsyncWorldEdit) clipboards across multiple servers. This plugin is designed to work with Paper, BungeeCord, and Velocity servers, ensuring that players' WorldEdit clipboards are consistent no matter which server they are on.
+WorldEditSync is a Minecraft plugin that synchronizes WorldEdit (FastAsyncWorldEdit) clipboards across multiple servers. It supports two sync modes: **Proxy mode** (via BungeeCord/Velocity Plugin Messages) and **S3 mode** (via any S3-compatible storage such as MinIO or AWS S3).
 
 ## Features
 
 - Synchronize WorldEdit and FastAsyncWorldEdit clipboards across multiple servers.
-- Automatically upload and download clipboards when players switch servers.
+- **Proxy mode**: Sync via BungeeCord or Velocity proxy using Plugin Messages.
+- **S3 mode**: Sync via S3-compatible storage (e.g. MinIO) — no proxy plugin required.
+- Automatically upload and download clipboards when players switch servers or modify their clipboard.
 - Efficient chunk-based data transfer to handle large clipboards.
+- AES-256-GCM encryption for all transferred data (configurable via `token`).
+- SHA-256 hash comparison to avoid unnecessary transfers.
 - Permissions support to control which players can use the synchronization feature.
-- Support for Paper, BungeeCord, and Velocity servers.
 
 ## Requirements
 
 - Minecraft server running Paper.
-- BungeeCord or Velocity proxy server.
 - WorldEdit or FastAsyncWorldEdit plugin installed on the Paper server.
+- **Proxy mode only**: BungeeCord or Velocity proxy server with WorldEditSync installed.
+- **S3 mode only**: An accessible S3-compatible storage service (e.g. MinIO).
 
 ## Installation
 
@@ -23,13 +27,31 @@ WorldEditSync is a Minecraft plugin that synchronizes WorldEdit (FastAsyncWorldE
 
 2. **Install on Paper Server:**
    - Place the `WorldEditSync.jar` file in the `plugins` directory of your Paper server.
-   - Ensure that the WorldEdit or FastAsyncWorldEdit plugin is also installed on the Paper server.
+   - Ensure that the WorldEdit or FastAsyncWorldEdit plugin is also installed.
 
-3. **Install on BungeeCord or Velocity Proxy:**
+3. **(Proxy mode only) Install on BungeeCord or Velocity Proxy:**
    - Place the `WorldEditSync.jar` file in the `plugins` directory of your BungeeCord or Velocity proxy server.
 
 4. **Configuration:**
-   - No additional configuration is required. The plugin will automatically register the necessary channels and start synchronizing clipboards.
+   - Edit `plugins/WorldEditSync/config.yml` on your Paper server.
+   - Set `sync-mode` to `"proxy"` (default) or `"s3"`.
+   - If using S3 mode, fill in the `s3` section with your storage endpoint and credentials.
+   - Set `token` to a shared secret string to enable AES-256-GCM encryption (recommended).
+
+### S3 Mode Configuration Example
+
+```yaml
+sync-mode: "s3"
+token: "your-secret-token"
+
+s3:
+  endpoint: "http://localhost:9000"
+  access-key: "minioadmin"
+  secret-key: "minioadmin"
+  bucket: "worldeditsync"
+  region: ""
+  check-interval: 40
+```
 
 ## Usage
 
@@ -37,7 +59,7 @@ WorldEditSync is a Minecraft plugin that synchronizes WorldEdit (FastAsyncWorldE
   - The plugin uses the `worldeditsync.sync` permission to control which players can use the synchronization feature. By default, this permission is granted to all players.
 
 - **Commands:**
-  - There are no commands required to use this plugin. Clipboard synchronization happens automatically when players copy or cut using WorldEdit or FastAsyncWorldEdit and switch servers.
+  - There are no commands required. Clipboard synchronization happens automatically when players copy or cut using WorldEdit or FastAsyncWorldEdit.
 
 ## Development
 
