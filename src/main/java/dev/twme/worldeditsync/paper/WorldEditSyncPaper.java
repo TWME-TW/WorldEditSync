@@ -13,11 +13,9 @@ public class WorldEditSyncPaper extends JavaPlugin {
     private WorldEditHelper worldEditHelper;
     private PluginMessageHandler messageHandler;
     private ClipboardWatcher clipboardWatcher;
-    private PlayerListener playerListener;
 
     @Override
     public void onEnable() {
-
         new UpdateChecker(this, 121682).getVersion(version -> {
             if (this.getPluginMeta().getVersion().equals(version)) {
                 getLogger().info("There is not a new update available.");
@@ -25,33 +23,36 @@ public class WorldEditSyncPaper extends JavaPlugin {
                 getLogger().info("There is a new update available. Download it here: https://www.spigotmc.org/resources/121682/");
             }
         });
+
         // 初始化組件
         this.clipboardManager = new ClipboardManager(this);
         this.worldEditHelper = new WorldEditHelper(this);
         this.messageHandler = new PluginMessageHandler(this);
         this.clipboardWatcher = new ClipboardWatcher(this);
-        this.playerListener = new PlayerListener(this);
 
-        // 註冊通道
-        this.getServer().getMessenger().registerOutgoingPluginChannel(this, Constants.CHANNEL);
-        this.getServer().getMessenger().registerIncomingPluginChannel(this, Constants.CHANNEL, messageHandler);
+        // 註冊 Plugin Message 通道
+        getServer().getMessenger().registerOutgoingPluginChannel(this, Constants.CHANNEL);
+        getServer().getMessenger().registerIncomingPluginChannel(this, Constants.CHANNEL, messageHandler);
 
-        // 啟動剪貼簿監視器
-        clipboardWatcher.runTaskTimer(this, 40L, 20L);
+        // 啟動剪貼簿偵測器
+        clipboardWatcher.runTaskTimer(this, Constants.WATCHER_INITIAL_DELAY_TICKS, Constants.WATCHER_INTERVAL_TICKS);
 
-        // 註冊監聽器
-        getServer().getPluginManager().registerEvents(playerListener, this);
+        // 註冊事件監聽器
+        getServer().getPluginManager().registerEvents(new PlayerListener(this), this);
+
         getLogger().info("WorldEditSync enabled!");
     }
 
     @Override
     public void onDisable() {
-        this.getServer().getMessenger().unregisterOutgoingPluginChannel(this);
-        this.getServer().getMessenger().unregisterIncomingPluginChannel(this);
+        getServer().getMessenger().unregisterOutgoingPluginChannel(this);
+        getServer().getMessenger().unregisterIncomingPluginChannel(this);
 
-        // 停止任務
         if (clipboardWatcher != null) {
             clipboardWatcher.cancel();
+        }
+        if (clipboardManager != null) {
+            clipboardManager.cleanup();
         }
 
         getLogger().info("WorldEditSync disabled!");
@@ -63,9 +64,5 @@ public class WorldEditSyncPaper extends JavaPlugin {
 
     public WorldEditHelper getWorldEditHelper() {
         return worldEditHelper;
-    }
-
-    public PluginMessageHandler getMessageHandler() {
-        return messageHandler;
     }
 }

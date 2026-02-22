@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 @Plugin(
         id = "worldeditsync",
         name = "WorldEditSync",
-        version = "0.0.6",
+        version = "0.0.7",
         description = "Sync WorldEdit clipboard across servers",
         authors = {"TWME"}
 )
@@ -26,9 +26,6 @@ public class WorldEditSyncVelocity {
     private final ProxyServer server;
     private final Logger logger;
     private ClipboardManager clipboardManager;
-    private MessageListener messageListener;
-    private PlayerListener playerListener;
-
 
     @Inject
     public WorldEditSyncVelocity(ProxyServer server, Logger logger) {
@@ -38,38 +35,28 @@ public class WorldEditSyncVelocity {
 
     @Subscribe
     public void onProxyInitialize(ProxyInitializeEvent event) {
-        // 初始化組件
-        this.clipboardManager = new ClipboardManager(this);
-        this.messageListener = new MessageListener(this);
-        this.playerListener = new PlayerListener(this);
+        this.clipboardManager = new ClipboardManager();
 
         // 註冊訊息通道
-        MinecraftChannelIdentifier channel =
-                MinecraftChannelIdentifier.from(Constants.CHANNEL);
+        MinecraftChannelIdentifier channel = MinecraftChannelIdentifier.from(Constants.CHANNEL);
         server.getChannelRegistrar().register(channel);
 
         // 註冊監聽器
-        server.getEventManager().register(this, messageListener);
-        server.getEventManager().register(this, playerListener);
+        server.getEventManager().register(this, new MessageListener(this));
+        server.getEventManager().register(this, new PlayerListener(this));
 
-        // 啟動清理任務
-        startCleanupTask();
+        // 定期清理過期的上傳會話
+        server.getScheduler().buildTask(this, clipboardManager::cleanupExpiredSessions)
+                .repeat(2L, TimeUnit.MINUTES)
+                .schedule();
 
         logger.info("WorldEditSync (Velocity) enabled!");
     }
 
     @Subscribe
     public void onProxyShutdown(ProxyShutdownEvent event) {
-        // 清理資源
         clipboardManager.cleanup();
         logger.info("WorldEditSync (Velocity) disabled!");
-    }
-
-    private void startCleanupTask() {
-        server.getScheduler()
-                .buildTask(this, () -> clipboardManager.cleanupExpiredSessions())
-                .repeat(2L, TimeUnit.MINUTES)
-                .schedule();
     }
 
     public ProxyServer getServer() {
