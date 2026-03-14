@@ -29,8 +29,6 @@ s3:
 
 # ============================================================
 # Advanced transfer settings
-# WARNING: These values MUST be identical on ALL servers and proxies.
-#          Mismatched values will cause sync failures.
 # ============================================================
 transfer:
   # Size of each chunk in bytes (~30KB, must stay below 32KB plugin message limit)
@@ -42,6 +40,8 @@ transfer:
   # Delay between sending chunks in milliseconds
   chunk-send-delay-ms: 5
   # Clipboard watcher interval in ticks (20 ticks = 1 second)
-  watcher-interval-ticks: 20
+  watcher-interval-ticks: 60
   # Clipboard watcher initial delay in ticks
   watcher-initial-delay-ticks: 40
+  # How long to keep offline player clipboard data on proxy (in minutes, 0 = forever)
+  clipboard-ttl-minutes: 60
