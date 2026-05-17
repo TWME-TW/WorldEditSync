@@ -20,6 +20,7 @@ import dev.twme.worldeditsync.common.protocol.TransferSession;
 import dev.twme.worldeditsync.common.util.HashUtil;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardSerializer;
+import dev.twme.worldeditsync.paper.util.SchedulerUtil;
 
 /**
  * Handles incoming plugin messages from the proxy in Proxy mode.
@@ -176,10 +177,10 @@ public class PluginMessageHandler implements PluginMessageListener {
                 return;
             }
 
-            // Deserialize and apply clipboard on main thread
+            // Deserialize and apply clipboard on entity thread
             Clipboard clipboard = clipboardSerializer.deserialize(decrypted);
 
-            plugin.getServer().getScheduler().runTask(plugin, () -> {
+            SchedulerUtil.runOnEntityThread(plugin, player, () -> {
                 if (player.isOnline()) {
                     clipboardSerializer.setPlayerClipboard(player, clipboard);
                     clipboardManager.setLocalHash(playerId, actualHash);

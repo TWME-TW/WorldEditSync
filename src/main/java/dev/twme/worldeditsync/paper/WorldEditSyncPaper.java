@@ -61,7 +61,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
         if (paperConfig.isProxyMode()) {
             clipboardWatcher = new ClipboardWatcher(this, clipboardManager, clipboardSerializer,
                     syncEngine, paperConfig.getTransferConfig());
-            clipboardWatcher.runTaskTimerAsynchronously(this,
+            clipboardWatcher.start(
                     paperConfig.getTransferConfig().getWatcherInitialDelayTicks(),
                     paperConfig.getTransferConfig().getWatcherIntervalTicks());
         }

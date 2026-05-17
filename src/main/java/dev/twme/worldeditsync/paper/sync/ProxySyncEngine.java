@@ -14,6 +14,7 @@ import dev.twme.worldeditsync.common.protocol.ProtocolCodec;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardSerializer;
 import dev.twme.worldeditsync.paper.message.PluginMessageHandler;
+import dev.twme.worldeditsync.paper.util.SchedulerUtil;
 
 /**
  * Proxy-mode sync engine: uploads/downloads clipboards via BungeeCord/Velocity Plugin Messages.
@@ -83,7 +84,7 @@ public class ProxySyncEngine implements SyncEngine {
         player.sendPluginMessage(plugin, Constants.CHANNEL, beginMsg);
 
         // Send chunks asynchronously
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+        SchedulerUtil.runAsync(plugin, () -> {
             try {
                 for (int i = 0; i < totalChunks; i++) {
                     if (!player.isOnline()) {
@@ -101,7 +102,7 @@ public class ProxySyncEngine implements SyncEngine {
                     byte[] chunkMsg = ProtocolCodec.encodeUploadChunk(sessionId, i, chunk);
 
                     final int chunkIndex = i;
-                    plugin.getServer().getScheduler().runTask(plugin, () ->
+                    SchedulerUtil.runOnEntityThread(plugin, player, () ->
                             player.sendPluginMessage(plugin, Constants.CHANNEL, chunkMsg));
 
                     if (transferConfig.getChunkSendDelayMs() > 0 && i < totalChunks - 1) {

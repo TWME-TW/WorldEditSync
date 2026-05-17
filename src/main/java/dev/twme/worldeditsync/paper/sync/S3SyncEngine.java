@@ -5,7 +5,6 @@ import java.util.logging.Logger;
 
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitTask;
 
 import com.sk89q.worldedit.extent.clipboard.Clipboard;
 
@@ -15,6 +14,7 @@ import dev.twme.worldeditsync.common.util.HashUtil;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardSerializer;
 import dev.twme.worldeditsync.paper.s3.S3StorageManager;
+import dev.twme.worldeditsync.paper.util.SchedulerUtil;
 
 /**
  * S3-mode sync engine: uploads/downloads clipboards via S3-compatible storage.
@@ -30,7 +30,7 @@ public class S3SyncEngine implements SyncEngine {
     private final int checkIntervalTicks;
     private final Logger logger;
 
-    private BukkitTask watcherTask;
+    private Object watcherTask;
 
     public S3SyncEngine(JavaPlugin plugin, ClipboardManager clipboardManager,
                         ClipboardSerializer clipboardSerializer, S3StorageManager s3,
@@ -50,7 +50,8 @@ public class S3SyncEngine implements SyncEngine {
             logger.severe("Failed to initialize S3. S3 sync engine will not start.");
             return;
         }
-        watcherTask = plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin,
+        watcherTask = SchedulerUtil.runAtFixedRateAsync(
+                plugin,
                 this::checkAllPlayers,
                 transferConfig.getWatcherInitialDelayTicks(),
                 checkIntervalTicks);
@@ -59,9 +60,7 @@ public class S3SyncEngine implements SyncEngine {
 
     @Override
     public void shutdown() {
-        if (watcherTask != null) {
-            watcherTask.cancel();
-        }
+        SchedulerUtil.cancelTask(watcherTask);
         logger.info("S3 sync engine shut down.");
     }
 
@@ -79,7 +78,7 @@ public class S3SyncEngine implements SyncEngine {
             return;
         }
 
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+        SchedulerUtil.runAsync(plugin, () -> {
             try {
                 boolean success = s3.uploadClipboard(playerId.toString(), data, hash);
                 if (success) {
@@ -173,7 +172,7 @@ public class S3SyncEngine implements SyncEngine {
             Clipboard clipboard = clipboardSerializer.deserialize(data);
             String actualHash = HashUtil.sha256Hex(data);
 
-            plugin.getServer().getScheduler().runTask(plugin, () -> {
+            SchedulerUtil.runOnEntityThread(plugin, player, () -> {
                 if (player.isOnline()) {
                     clipboardSerializer.setPlayerClipboard(player, clipboard);
                     clipboardManager.setLocalHash(playerId, actualHash);
