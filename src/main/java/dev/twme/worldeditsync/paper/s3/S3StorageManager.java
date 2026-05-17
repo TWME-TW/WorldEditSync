@@ -70,7 +70,7 @@ public class S3StorageManager {
             client.putObject(PutObjectArgs.builder()
                     .bucket(bucket)
                     .object(objectName)
-                    .stream(new ByteArrayInputStream(encrypted), encrypted.length, -1)
+                    .stream(new ByteArrayInputStream(encrypted), (long) encrypted.length, -1L)
                     .userMetadata(Collections.singletonMap(HASH_METADATA_KEY, hash))
                     .build());
 
@@ -90,7 +90,7 @@ public class S3StorageManager {
             String objectName = OBJECT_PREFIX + playerId + ".schem";
             StatObjectResponse stat = client.statObject(
                     StatObjectArgs.builder().bucket(bucket).object(objectName).build());
-            String hash = stat.userMetadata().get(HASH_METADATA_KEY);
+            String hash = stat.userMetadata().getFirst(HASH_METADATA_KEY);
             return hash != null ? hash : "";
         } catch (Exception e) {
             return "";
