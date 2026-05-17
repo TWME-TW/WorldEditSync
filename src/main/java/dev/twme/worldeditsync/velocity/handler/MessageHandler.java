@@ -4,7 +4,8 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.UUID;
-import java.util.logging.Logger;
+
+import org.slf4j.Logger;
 
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -21,19 +22,23 @@ import dev.twme.worldeditsync.velocity.storage.ClipboardStore;
  */
 public class MessageHandler {
 
+    private final Object plugin;
     private final ProxyServer server;
     private final ClipboardStore store;
     private final ChannelIdentifier channelId;
     private final int chunkSize;
+    private final int maxClipboardSize;
     private final long chunkSendDelayMs;
     private final Logger logger;
 
-    public MessageHandler(ProxyServer server, ClipboardStore store, ChannelIdentifier channelId,
-                          int chunkSize, long chunkSendDelayMs, Logger logger) {
+    public MessageHandler(Object plugin, ProxyServer server, ClipboardStore store, ChannelIdentifier channelId,
+                          int chunkSize, int maxClipboardSize, long chunkSendDelayMs, Logger logger) {
+        this.plugin = plugin;
         this.server = server;
         this.store = store;
         this.channelId = channelId;
         this.chunkSize = chunkSize;
+        this.maxClipboardSize = maxClipboardSize;
         this.chunkSendDelayMs = chunkSendDelayMs;
         this.logger = logger;
     }
@@ -41,7 +46,7 @@ public class MessageHandler {
     public void handleMessage(Player player, byte[] data) {
         ParsedMessage msg = ProtocolCodec.decode(data);
         if (msg == null) {
-            logger.warning("Invalid protocol message from " + player.getUsername());
+            logger.warn("Invalid protocol message from " + player.getUsername());
             return;
         }
 
@@ -52,10 +57,10 @@ public class MessageHandler {
                 case DOWNLOAD_REQUEST -> handleDownloadRequest(player);
                 case DOWNLOAD_ACK -> handleDownloadAck(player, msg);
                 case CANCEL -> handleCancel(player, msg);
-                default -> logger.warning("Unexpected message type from Paper: " + msg.type());
+                default -> logger.warn("Unexpected message type from Paper: " + msg.type());
             }
         } catch (IOException e) {
-            logger.severe("Error handling message " + msg.type() + " from " + player.getUsername() + ": " + e.getMessage());
+            logger.error("Error handling message " + msg.type() + " from " + player.getUsername() + ": " + e.getMessage());
         }
     }
 
@@ -66,10 +71,17 @@ public class MessageHandler {
         int totalChunks = in.readInt();
         String hash = in.readUTF();
 
+        if (totalBytes <= 0 || totalBytes > maxClipboardSize) {
+            logger.warn("Upload rejected from " + player.getUsername() + ": totalBytes=" + totalBytes + " exceeds limit=" + maxClipboardSize);
+            byte[] cancelMsg = ProtocolCodec.encodeCancel(sessionId, "Clipboard too large");
+            sendToPlayer(player, cancelMsg);
+            return;
+        }
+
         TransferSession session = new TransferSession(sessionId, totalChunks, totalBytes, hash);
         store.addUploadSession(sessionId, player.getUniqueId(), session);
 
-        logger.fine("Upload begin from " + player.getUsername() + ": " + totalBytes + " bytes, " + totalChunks + " chunks");
+            logger.debug("Upload begin from " + player.getUsername() + ": " + totalBytes + " bytes, " + totalChunks + " chunks");
     }
 
     private void handleUploadChunk(Player player, ParsedMessage msg) throws IOException {
@@ -77,11 +89,18 @@ public class MessageHandler {
         String sessionId = in.readUTF();
         int chunkIndex = in.readInt();
         int chunkLength = in.readInt();
+        if (chunkLength <= 0 || chunkLength > chunkSize) {
+            logger.warn("Chunk rejected from " + player.getUsername() + ": chunkLength=" + chunkLength + " exceeds chunkSize=" + chunkSize);
+            byte[] cancelMsg = ProtocolCodec.encodeCancel(sessionId, "Invalid chunk length");
+            sendToPlayer(player, cancelMsg);
+            store.removeUploadSession(sessionId);
+            return;
+        }
         byte[] chunkData = in.readNBytes(chunkLength);
 
         TransferSession session = store.getUploadSession(sessionId);
         if (session == null) {
-            logger.warning("Chunk for unknown upload session: " + sessionId);
+            logger.warn("Chunk for unknown upload session: " + sessionId);
             return;
         }
 
@@ -104,9 +123,9 @@ public class MessageHandler {
             byte[] ackMsg = ProtocolCodec.encodeUploadAck(sessionId);
             sendToPlayer(player, ackMsg);
 
-            logger.fine("Upload complete for " + player.getUsername() + ", hash: " + session.getExpectedHash());
+            logger.debug("Upload complete for " + player.getUsername() + ", hash: " + session.getExpectedHash());
         } catch (Exception e) {
-            logger.severe("Failed to complete upload for " + player.getUsername() + ": " + e.getMessage());
+            logger.error("Failed to complete upload for " + player.getUsername() + ": " + e.getMessage());
             store.removeUploadSession(sessionId);
         }
     }
@@ -136,7 +155,7 @@ public class MessageHandler {
             final int chunkIndex = i;
             long delayMs = (long) (i + 1) * chunkSendDelayMs;
 
-            server.getScheduler().buildTask(server, () -> {
+            server.getScheduler().buildTask(plugin, () -> {
                 if (!player.isActive()) return;
 
                 int offset = chunkIndex * chunkSize;
@@ -153,7 +172,7 @@ public class MessageHandler {
     private void handleDownloadAck(Player player, ParsedMessage msg) throws IOException {
         DataInputStream in = ProtocolCodec.payloadStream(msg);
         String sessionId = in.readUTF();
-        logger.fine("Download acknowledged by " + player.getUsername() + " session: " + sessionId);
+        logger.debug("Download acknowledged by " + player.getUsername() + " session: " + sessionId);
     }
 
     private void handleCancel(Player player, ParsedMessage msg) throws IOException {
@@ -162,7 +181,7 @@ public class MessageHandler {
         String reason = in.readUTF();
 
         store.removeUploadSession(sessionId);
-        logger.fine("Transfer cancelled by " + player.getUsername() + ": " + reason);
+        logger.debug("Transfer cancelled by " + player.getUsername() + ": " + reason);
     }
 
     private void sendToPlayer(Player player, byte[] data) {

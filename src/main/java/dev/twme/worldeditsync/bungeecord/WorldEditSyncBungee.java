@@ -1,18 +1,18 @@
 package dev.twme.worldeditsync.bungeecord;
 
-import dev.twme.worldeditsync.common.Constants;
-import dev.twme.worldeditsync.common.crypto.MessageCipher;
+import java.util.concurrent.TimeUnit;
+
 import dev.twme.worldeditsync.bungeecord.config.BungeeConfig;
 import dev.twme.worldeditsync.bungeecord.handler.MessageHandler;
 import dev.twme.worldeditsync.bungeecord.listener.PlayerListener;
 import dev.twme.worldeditsync.bungeecord.storage.ClipboardStore;
-import net.md_5.bungee.api.event.PluginMessageEvent;
+import dev.twme.worldeditsync.common.Constants;
+import dev.twme.worldeditsync.common.crypto.MessageCipher;
 import net.md_5.bungee.api.connection.ProxiedPlayer;
+import net.md_5.bungee.api.event.PluginMessageEvent;
 import net.md_5.bungee.api.plugin.Listener;
 import net.md_5.bungee.api.plugin.Plugin;
 import net.md_5.bungee.event.EventHandler;
-
-import java.util.concurrent.TimeUnit;
 
 public class WorldEditSyncBungee extends Plugin implements Listener {
 
@@ -34,7 +34,7 @@ public class WorldEditSyncBungee extends Plugin implements Listener {
             getLogger().warning("Encryption disabled! Set 'token' in config.yml for secure transfers.");
         }
 
-        messageHandler = new MessageHandler(this, store, config.getChunkSize(), config.getChunkSendDelayMs());
+        messageHandler = new MessageHandler(this, store, config.getChunkSize(), config.getMaxClipboardSize(), config.getChunkSendDelayMs());
 
         // Register plugin message channel
         getProxy().registerChannel(Constants.CHANNEL);

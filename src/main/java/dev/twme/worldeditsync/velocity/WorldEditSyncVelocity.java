@@ -2,7 +2,8 @@ package dev.twme.worldeditsync.velocity;
 
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.logging.Logger;
+
+import org.slf4j.Logger;
 
 import com.google.inject.Inject;
 import com.velocitypowered.api.event.Subscribe;
@@ -56,7 +57,7 @@ public class WorldEditSyncVelocity {
         if (cipher.isEnabled()) {
             logger.info("Encryption enabled (AES-256-GCM).");
         } else {
-            logger.warning("Encryption disabled! Set 'token' in config.yml for secure transfers.");
+            logger.warn("Encryption disabled! Set 'token' in config.yml for secure transfers.");
         }
 
         // Register channel
@@ -65,11 +66,11 @@ public class WorldEditSyncVelocity {
         server.getChannelRegistrar().register(channelId);
 
         // Initialize handler
-        messageHandler = new MessageHandler(server, store, channelId,
-                config.getChunkSize(), config.getChunkSendDelayMs(), logger);
+        messageHandler = new MessageHandler(this, server, store, channelId,
+                config.getChunkSize(), config.getMaxClipboardSize(), config.getChunkSendDelayMs(), logger);
 
         // Register event listeners
-        server.getEventManager().register(this, new PlayerListener(server, store, channelId, logger));
+        server.getEventManager().register(this, new PlayerListener(this, server, store, channelId, logger));
 
         // Schedule cleanup
         server.getScheduler().buildTask(this, () -> {

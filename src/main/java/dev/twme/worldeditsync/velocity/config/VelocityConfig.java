@@ -5,8 +5,8 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.logging.Logger;
 
+import org.slf4j.Logger;
 import org.yaml.snakeyaml.Yaml;
 
 public class VelocityConfig {
@@ -16,6 +16,7 @@ public class VelocityConfig {
     private long clipboardTtlMinutes = 60;
     private int chunkSize = 30_000;
     private long chunkSendDelayMs = 5;
+    private int maxClipboardSize = 52_428_800;
 
     public void load(Path dataDirectory, Logger logger) {
         try {
@@ -45,10 +46,11 @@ public class VelocityConfig {
                     clipboardTtlMinutes = getLong(transfer, "clipboard-ttl-minutes", clipboardTtlMinutes);
                     chunkSize = getInt(transfer, "chunk-size", chunkSize);
                     chunkSendDelayMs = getLong(transfer, "chunk-send-delay-ms", chunkSendDelayMs);
+                    maxClipboardSize = getInt(transfer, "max-clipboard-size", maxClipboardSize);
                 }
             }
         } catch (IOException e) {
-            logger.severe("Failed to load config: " + e.getMessage());
+            logger.error("Failed to load config: " + e.getMessage());
         }
     }
 
@@ -87,5 +89,9 @@ public class VelocityConfig {
 
     public long getChunkSendDelayMs() {
         return chunkSendDelayMs;
+    }
+
+    public int getMaxClipboardSize() {
+        return maxClipboardSize;
     }
 }

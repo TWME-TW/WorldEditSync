@@ -23,13 +23,15 @@ public class MessageHandler {
     private final Plugin plugin;
     private final ClipboardStore store;
     private final int chunkSize;
+    private final int maxClipboardSize;
     private final long chunkSendDelayMs;
     private final Logger logger;
 
-    public MessageHandler(Plugin plugin, ClipboardStore store, int chunkSize, long chunkSendDelayMs) {
+    public MessageHandler(Plugin plugin, ClipboardStore store, int chunkSize, int maxClipboardSize, long chunkSendDelayMs) {
         this.plugin = plugin;
         this.store = store;
         this.chunkSize = chunkSize;
+        this.maxClipboardSize = maxClipboardSize;
         this.chunkSendDelayMs = chunkSendDelayMs;
         this.logger = plugin.getLogger();
     }
@@ -62,6 +64,13 @@ public class MessageHandler {
         int totalChunks = in.readInt();
         String hash = in.readUTF();
 
+        if (totalBytes <= 0 || totalBytes > maxClipboardSize) {
+            logger.warning("Upload rejected from " + player.getName() + ": totalBytes=" + totalBytes + " exceeds limit=" + maxClipboardSize);
+            byte[] cancelMsg = ProtocolCodec.encodeCancel(sessionId, "Clipboard too large");
+            sendToPlayer(player, cancelMsg);
+            return;
+        }
+
         TransferSession session = new TransferSession(sessionId, totalChunks, totalBytes, hash);
         store.addUploadSession(sessionId, player.getUniqueId(), session);
 
@@ -73,6 +82,13 @@ public class MessageHandler {
         String sessionId = in.readUTF();
         int chunkIndex = in.readInt();
         int chunkLength = in.readInt();
+        if (chunkLength <= 0 || chunkLength > chunkSize) {
+            logger.warning("Chunk rejected from " + player.getName() + ": chunkLength=" + chunkLength + " exceeds chunkSize=" + chunkSize);
+            byte[] cancelMsg = ProtocolCodec.encodeCancel(sessionId, "Invalid chunk length");
+            sendToPlayer(player, cancelMsg);
+            store.removeUploadSession(sessionId);
+            return;
+        }
         byte[] chunkData = in.readNBytes(chunkLength);
 
         TransferSession session = store.getUploadSession(sessionId);

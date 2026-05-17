@@ -17,6 +17,7 @@ public class BungeeConfig {
     private long clipboardTtlMinutes = 60;
     private int chunkSize = 30_000;
     private long chunkSendDelayMs = 5;
+    private int maxClipboardSize = 52_428_800;
 
     public void load(Plugin plugin) {
         File dataFolder = plugin.getDataFolder();
@@ -42,6 +43,7 @@ public class BungeeConfig {
             clipboardTtlMinutes = config.getLong("transfer.clipboard-ttl-minutes", clipboardTtlMinutes);
             chunkSize = config.getInt("transfer.chunk-size", chunkSize);
             chunkSendDelayMs = config.getLong("transfer.chunk-send-delay-ms", chunkSendDelayMs);
+            maxClipboardSize = config.getInt("transfer.max-clipboard-size", maxClipboardSize);
         } catch (IOException e) {
             plugin.getLogger().severe("Failed to load config: " + e.getMessage());
         }
@@ -65,5 +67,9 @@ public class BungeeConfig {
 
     public long getChunkSendDelayMs() {
         return chunkSendDelayMs;
+    }
+
+    public int getMaxClipboardSize() {
+        return maxClipboardSize;
     }
 }

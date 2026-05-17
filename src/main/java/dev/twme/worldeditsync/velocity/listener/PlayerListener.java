@@ -1,7 +1,8 @@
 package dev.twme.worldeditsync.velocity.listener;
 
 import java.time.Duration;
-import java.util.logging.Logger;
+
+import org.slf4j.Logger;
 
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
@@ -15,13 +16,15 @@ import dev.twme.worldeditsync.velocity.storage.ClipboardStore;
 
 public class PlayerListener {
 
+    private final Object plugin;
     private final ProxyServer server;
     private final ClipboardStore store;
     private final ChannelIdentifier channelId;
     private final Logger logger;
 
-    public PlayerListener(ProxyServer server, ClipboardStore store,
+    public PlayerListener(Object plugin, ProxyServer server, ClipboardStore store,
                           ChannelIdentifier channelId, Logger logger) {
+        this.plugin = plugin;
         this.server = server;
         this.store = store;
         this.channelId = channelId;
@@ -33,7 +36,7 @@ public class PlayerListener {
         Player player = event.getPlayer();
 
         // Delay to ensure the player is fully connected to the new server
-        server.getScheduler().buildTask(server, () -> {
+        server.getScheduler().buildTask(plugin, () -> {
             if (!player.isActive()) return;
 
             ClipboardPayload payload = store.getClipboard(player.getUniqueId());
