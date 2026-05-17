@@ -59,13 +59,17 @@ public class ClipboardWatcher extends BukkitRunnable {
                 Clipboard clipboard = clipboardSerializer.getPlayerClipboard(player);
                 if (clipboard == null) return;
 
+                // Use object identity to detect clipboard changes.
+                // Serialization is non-deterministic (e.g. GZIP timestamps vary between
+                // calls), so hashing serialized bytes would cause a perpetual upload loop
+                // even when the clipboard content has not changed.
+                if (!clipboardManager.isClipboardChanged(playerId, clipboard)) return;
+
                 byte[] serialized = clipboardSerializer.serialize(clipboard);
                 String hash = HashUtil.sha256Hex(serialized);
-                String localHash = clipboardManager.getLocalHash(playerId);
 
-                if (hash.equals(localHash)) return;
-
-                // Clipboard changed
+                // Record both identity and hash before uploading so subsequent ticks skip this object
+                clipboardManager.setClipboardIdentity(playerId, clipboard);
                 clipboardManager.setLocalHash(playerId, hash);
                 syncEngine.uploadClipboard(player, serialized, hash);
             } catch (Exception e) {

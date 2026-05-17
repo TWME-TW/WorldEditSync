@@ -1,11 +1,14 @@
 package dev.twme.worldeditsync.paper.clipboard;
 
-import dev.twme.worldeditsync.common.model.SyncState;
-import dev.twme.worldeditsync.common.protocol.TransferSession;
-
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+
+import com.sk89q.worldedit.extent.clipboard.Clipboard;
+
+import dev.twme.worldeditsync.common.model.SyncState;
+import dev.twme.worldeditsync.common.protocol.TransferSession;
 
 /**
  * Manages per-player sync state, local clipboard hash cache, and active transfer sessions.
@@ -17,6 +20,10 @@ public class ClipboardManager {
     private final ConcurrentHashMap<UUID, String> localHashes = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, String> activeSessionIds = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, TransferSession> downloadSessions = new ConcurrentHashMap<>();
+    /** Tracks System.identityHashCode of the last seen Clipboard object per player.
+     *  Used by ClipboardWatcher to detect genuine clipboard changes without
+     *  relying on serialized-bytes hashing (which is non-deterministic). */
+    private final ConcurrentHashMap<UUID, AtomicInteger> clipboardIdentities = new ConcurrentHashMap<>();
 
     // ── State management ──
 
@@ -25,8 +32,20 @@ public class ClipboardManager {
         return ref != null ? ref.get() : null;
     }
 
+    /**
+     * Initialises a player with PENDING_SYNC state (proxy mode).
+     * The watcher will not upload until SYNC_HASH or SYNC_NO_DATA is received.
+     */
     public void initPlayer(UUID playerId) {
-        playerStates.put(playerId, new AtomicReference<>(SyncState.IDLE));
+        initPlayer(playerId, SyncState.PENDING_SYNC);
+    }
+
+    /**
+     * Initialises a player with an explicit initial state.
+     * S3 mode passes IDLE directly because it manages its own join-time check.
+     */
+    public void initPlayer(UUID playerId, SyncState initialState) {
+        playerStates.put(playerId, new AtomicReference<>(initialState));
     }
 
     /**
@@ -36,6 +55,19 @@ public class ClipboardManager {
         AtomicReference<SyncState> ref = playerStates.get(playerId);
         if (ref == null) return false;
         return ref.compareAndSet(expected, newState);
+    }
+
+    /**
+     * Atomically transition state from either PENDING_SYNC or IDLE.
+     * Used when handling initial proxy sync messages (SYNC_HASH / SYNC_NO_DATA)
+     * where the player may still be in the initial join gate.
+     * Returns true if successful.
+     */
+    public boolean transitionFromPendingOrIdle(UUID playerId, SyncState newState) {
+        AtomicReference<SyncState> ref = playerStates.get(playerId);
+        if (ref == null) return false;
+        return ref.compareAndSet(SyncState.PENDING_SYNC, newState)
+                || ref.compareAndSet(SyncState.IDLE, newState);
     }
 
     /**
@@ -64,6 +96,26 @@ public class ClipboardManager {
 
     public void setLocalHash(UUID playerId, String hash) {
         localHashes.put(playerId, hash);
+    }
+
+    // ── Clipboard identity (change detection) ──
+
+    /**
+     * Returns true if the given clipboard object is different from the last recorded one.
+     * Uses System.identityHashCode so that a new clipboard object from //copy is always
+     * treated as changed, while the same unchanged object is not re-uploaded.
+     */
+    public boolean isClipboardChanged(UUID playerId, Clipboard clipboard) {
+        AtomicInteger stored = clipboardIdentities.get(playerId);
+        return stored == null || stored.get() != System.identityHashCode(clipboard);
+    }
+
+    /**
+     * Records the identity of the current clipboard so subsequent watcher ticks skip it.
+     */
+    public void setClipboardIdentity(UUID playerId, Clipboard clipboard) {
+        clipboardIdentities.computeIfAbsent(playerId, id -> new AtomicInteger())
+                .set(System.identityHashCode(clipboard));
     }
 
     // ── Session management ──
@@ -97,6 +149,7 @@ public class ClipboardManager {
     public void removePlayer(UUID playerId) {
         playerStates.remove(playerId);
         localHashes.remove(playerId);
+        clipboardIdentities.remove(playerId);
         String sessionId = activeSessionIds.remove(playerId);
         if (sessionId != null) {
             downloadSessions.remove(sessionId);
@@ -110,6 +163,7 @@ public class ClipboardManager {
     public void shutdown() {
         playerStates.clear();
         localHashes.clear();
+        clipboardIdentities.clear();
         activeSessionIds.clear();
         downloadSessions.clear();
     }

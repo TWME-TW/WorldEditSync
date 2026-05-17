@@ -1,18 +1,20 @@
 package dev.twme.worldeditsync.paper.sync;
 
+import java.util.UUID;
+import java.util.logging.Logger;
+
+import org.bukkit.entity.Player;
+import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
+
 import com.sk89q.worldedit.extent.clipboard.Clipboard;
+
 import dev.twme.worldeditsync.common.config.TransferConfig;
 import dev.twme.worldeditsync.common.model.SyncState;
 import dev.twme.worldeditsync.common.util.HashUtil;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardSerializer;
 import dev.twme.worldeditsync.paper.s3.S3StorageManager;
-import org.bukkit.entity.Player;
-import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitTask;
-
-import java.util.UUID;
-import java.util.logging.Logger;
 
 /**
  * S3-mode sync engine: uploads/downloads clipboards via S3-compatible storage.
@@ -94,7 +96,9 @@ public class S3SyncEngine implements SyncEngine {
 
     @Override
     public void onPlayerJoinServer(Player player) {
-        clipboardManager.initPlayer(player.getUniqueId());
+        // S3 mode has no proxy to send SYNC_HASH, so we start IDLE immediately.
+        // syncPlayer() will perform a remote-hash check before allowing uploads.
+        clipboardManager.initPlayer(player.getUniqueId(), SyncState.IDLE);
     }
 
     @Override
@@ -127,16 +131,19 @@ public class S3SyncEngine implements SyncEngine {
                 return;
             }
 
-            byte[] serialized = clipboardSerializer.serialize(clipboard);
-            String hash = HashUtil.sha256Hex(serialized);
-            String localHash = clipboardManager.getLocalHash(playerId);
-
-            if (hash.equals(localHash)) {
+            // Use object identity to detect clipboard changes.
+            // Serialization is non-deterministic (e.g. GZIP timestamps vary between calls),
+            // so hashing serialized bytes would cause a perpetual upload loop.
+            if (clipboardManager.isClipboardChanged(playerId, clipboard)) {
+                // Local clipboard changed (new //copy): upload
+                byte[] serialized = clipboardSerializer.serialize(clipboard);
+                String hash = HashUtil.sha256Hex(serialized);
+                clipboardManager.setClipboardIdentity(playerId, clipboard);
+                clipboardManager.setLocalHash(playerId, hash);
+                uploadClipboard(player, serialized, hash);
+            } else {
                 // Local unchanged: check remote for updates
                 checkAndDownloadFromS3(player);
-            } else {
-                // Local changed: upload
-                uploadClipboard(player, serialized, hash);
             }
         } catch (Exception e) {
             logger.warning("S3 sync error for " + player.getName() + ": " + e.getMessage());
@@ -170,6 +177,9 @@ public class S3SyncEngine implements SyncEngine {
                 if (player.isOnline()) {
                     clipboardSerializer.setPlayerClipboard(player, clipboard);
                     clipboardManager.setLocalHash(playerId, actualHash);
+                    // Record identity so the watcher does not immediately re-upload
+                    // the just-downloaded clipboard.
+                    clipboardManager.setClipboardIdentity(playerId, clipboard);
                     logger.info("Clipboard synced from S3 for " + player.getName());
                 }
                 clipboardManager.forceSetState(playerId, SyncState.IDLE);

@@ -6,6 +6,12 @@ package dev.twme.worldeditsync.common.model;
  */
 public enum SyncState {
 
+    /**
+     * Player just joined; waiting for the proxy to send SYNC_HASH or SYNC_NO_DATA.
+     * ClipboardWatcher will not upload while in this state.
+     */
+    PENDING_SYNC,
+
     /** Ready to detect changes or receive sync messages. */
     IDLE,
 

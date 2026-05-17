@@ -1,6 +1,15 @@
 package dev.twme.worldeditsync.paper.message;
 
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.util.logging.Logger;
+
+import org.bukkit.entity.Player;
+import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.plugin.messaging.PluginMessageListener;
+
 import com.sk89q.worldedit.extent.clipboard.Clipboard;
+
 import dev.twme.worldeditsync.common.Constants;
 import dev.twme.worldeditsync.common.config.TransferConfig;
 import dev.twme.worldeditsync.common.crypto.MessageCipher;
@@ -11,13 +20,6 @@ import dev.twme.worldeditsync.common.protocol.TransferSession;
 import dev.twme.worldeditsync.common.util.HashUtil;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardSerializer;
-import org.bukkit.entity.Player;
-import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.plugin.messaging.PluginMessageListener;
-
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.util.logging.Logger;
 
 /**
  * Handles incoming plugin messages from the proxy in Proxy mode.
@@ -73,8 +75,9 @@ public class PluginMessageHandler implements PluginMessageListener {
 
         var playerId = player.getUniqueId();
 
-        if (!clipboardManager.compareAndSetState(playerId, SyncState.IDLE, SyncState.CHECKING)) {
-            logger.fine("Ignoring SYNC_HASH for " + player.getName() + ": not idle");
+        // Accept transition from PENDING_SYNC (initial join gate) or IDLE (server switch)
+        if (!clipboardManager.transitionFromPendingOrIdle(playerId, SyncState.CHECKING)) {
+            logger.fine("Ignoring SYNC_HASH for " + player.getName() + ": not in PENDING_SYNC or IDLE state");
             return;
         }
 
@@ -98,6 +101,7 @@ public class PluginMessageHandler implements PluginMessageListener {
     }
 
     private void handleSyncNoData(Player player) {
+        // Proxy has no data: release PENDING_SYNC or IDLE gate unconditionally so the watcher can upload
         clipboardManager.forceSetState(player.getUniqueId(), SyncState.IDLE);
         logger.fine("Proxy has no clipboard data for " + player.getName());
     }
@@ -179,6 +183,9 @@ public class PluginMessageHandler implements PluginMessageListener {
                 if (player.isOnline()) {
                     clipboardSerializer.setPlayerClipboard(player, clipboard);
                     clipboardManager.setLocalHash(playerId, actualHash);
+                    // Record the new clipboard object's identity so the watcher does not
+                    // immediately re-upload the just-downloaded clipboard.
+                    clipboardManager.setClipboardIdentity(playerId, clipboard);
                     logger.info("Clipboard synced for " + player.getName());
                 }
                 clipboardManager.removeDownloadSession(sessionId);
