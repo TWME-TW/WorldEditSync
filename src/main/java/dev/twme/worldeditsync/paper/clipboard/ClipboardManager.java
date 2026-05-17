@@ -1,137 +1,170 @@
 package dev.twme.worldeditsync.paper.clipboard;
 
-import com.google.common.hash.Hashing;
-import dev.twme.worldeditsync.common.transfer.SyncState;
-import dev.twme.worldeditsync.common.transfer.TransferSession;
-import dev.twme.worldeditsync.paper.WorldEditSyncPaper;
-
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+
+import com.sk89q.worldedit.extent.clipboard.Clipboard;
+
+import dev.twme.worldeditsync.common.model.SyncState;
+import dev.twme.worldeditsync.common.protocol.TransferSession;
 
 /**
- * Paper 端的剪貼簿管理器。
- * 負責：
- * - 管理每個玩家的同步狀態 (SyncState)
- * - 快取本地剪貼簿的序列化資料與 hash
- * - 管理下載會話 (TransferSession)
+ * Manages per-player sync state, local clipboard hash cache, and active transfer sessions.
+ * All state transitions use AtomicReference.compareAndSet to avoid race conditions.
  */
 public class ClipboardManager {
-    private final WorldEditSyncPaper plugin;
 
-    /** 每個玩家的同步狀態 */
-    private final Map<UUID, SyncState> playerStates = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, AtomicReference<SyncState>> playerStates = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, String> localHashes = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, String> activeSessionIds = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, TransferSession> downloadSessions = new ConcurrentHashMap<>();
+    /** Tracks System.identityHashCode of the last seen Clipboard object per player.
+     *  Used by ClipboardWatcher to detect genuine clipboard changes without
+     *  relying on serialized-bytes hashing (which is non-deterministic). */
+    private final ConcurrentHashMap<UUID, AtomicInteger> clipboardIdentities = new ConcurrentHashMap<>();
 
-    /** 快取的本地剪貼簿 SHA-256 hash */
-    private final Map<UUID, String> localHashes = new ConcurrentHashMap<>();
+    // ── State management ──
 
-    /** 快取的本地剪貼簿序列化資料 */
-    private final Map<UUID, byte[]> localData = new ConcurrentHashMap<>();
-
-    /** 活躍的下載會話 (sessionId → TransferSession) */
-    private final Map<String, TransferSession> downloadSessions = new ConcurrentHashMap<>();
-
-    public ClipboardManager(WorldEditSyncPaper plugin) {
-        this.plugin = plugin;
-    }
-
-    // ==================== 狀態管理 ====================
-
-    /**
-     * 取得玩家的同步狀態。新玩家預設為 INITIALIZING。
-     */
-    public SyncState getState(UUID playerUuid) {
-        return playerStates.getOrDefault(playerUuid, SyncState.INITIALIZING);
+    public SyncState getState(UUID playerId) {
+        AtomicReference<SyncState> ref = playerStates.get(playerId);
+        return ref != null ? ref.get() : null;
     }
 
     /**
-     * 設定玩家的同步狀態。
+     * Initialises a player with PENDING_SYNC state (proxy mode).
+     * The watcher will not upload until SYNC_HASH or SYNC_NO_DATA is received.
      */
-    public void setState(UUID playerUuid, SyncState state) {
-        playerStates.put(playerUuid, state);
+    public void initPlayer(UUID playerId) {
+        initPlayer(playerId, SyncState.PENDING_SYNC);
     }
 
     /**
-     * 檢查玩家是否處於閒置狀態（可以偵測變更）。
+     * Initialises a player with an explicit initial state.
+     * S3 mode passes IDLE directly because it manages its own join-time check.
      */
-    public boolean isIdle(UUID playerUuid) {
-        return getState(playerUuid) == SyncState.IDLE;
-    }
-
-    // ==================== 本地快取 ====================
-
-    /**
-     * 更新本地剪貼簿快取。
-     */
-    public void updateLocalCache(UUID playerUuid, byte[] data, String hash) {
-        localData.put(playerUuid, data);
-        localHashes.put(playerUuid, hash);
+    public void initPlayer(UUID playerId, SyncState initialState) {
+        playerStates.put(playerId, new AtomicReference<>(initialState));
     }
 
     /**
-     * 取得本地快取的剪貼簿 hash。
+     * Atomically transition state. Returns true if successful.
      */
-    public String getLocalHash(UUID playerUuid) {
-        return localHashes.getOrDefault(playerUuid, "");
+    public boolean compareAndSetState(UUID playerId, SyncState expected, SyncState newState) {
+        AtomicReference<SyncState> ref = playerStates.get(playerId);
+        if (ref == null) return false;
+        return ref.compareAndSet(expected, newState);
     }
 
     /**
-     * 取得本地快取的剪貼簿序列化資料。
+     * Atomically transition state from either PENDING_SYNC or IDLE.
+     * Used when handling initial proxy sync messages (SYNC_HASH / SYNC_NO_DATA)
+     * where the player may still be in the initial join gate.
+     * Returns true if successful.
      */
-    public byte[] getLocalData(UUID playerUuid) {
-        return localData.get(playerUuid);
+    public boolean transitionFromPendingOrIdle(UUID playerId, SyncState newState) {
+        AtomicReference<SyncState> ref = playerStates.get(playerId);
+        if (ref == null) return false;
+        return ref.compareAndSet(SyncState.PENDING_SYNC, newState)
+                || ref.compareAndSet(SyncState.IDLE, newState);
     }
 
     /**
-     * 使用 SHA-256 計算資料的雜湊值。
+     * Force set state (for error recovery / cleanup).
      */
-    public static String computeHash(byte[] data) {
-        if (data == null || data.length == 0) return "";
-        return Hashing.sha256().hashBytes(data).toString();
+    public void forceSetState(UUID playerId, SyncState state) {
+        AtomicReference<SyncState> ref = playerStates.get(playerId);
+        if (ref != null) {
+            ref.set(state);
+        }
     }
 
-    // ==================== 下載會話 ====================
+    public boolean isIdle(UUID playerId) {
+        return getState(playerId) == SyncState.IDLE;
+    }
+
+    public boolean isTracked(UUID playerId) {
+        return playerStates.containsKey(playerId);
+    }
+
+    // ── Hash cache ──
+
+    public String getLocalHash(UUID playerId) {
+        return localHashes.get(playerId);
+    }
+
+    public void setLocalHash(UUID playerId, String hash) {
+        localHashes.put(playerId, hash);
+    }
+
+    // ── Clipboard identity (change detection) ──
 
     /**
-     * 建立新的下載會話。
+     * Returns true if the given clipboard object is different from the last recorded one.
+     * Uses System.identityHashCode so that a new clipboard object from //copy is always
+     * treated as changed, while the same unchanged object is not re-uploaded.
      */
-    public void createDownloadSession(String sessionId, UUID playerUuid, int totalChunks, int totalBytes, String hash) {
-        downloadSessions.put(sessionId, new TransferSession(playerUuid, sessionId, totalChunks, totalBytes, hash));
+    public boolean isClipboardChanged(UUID playerId, Clipboard clipboard) {
+        AtomicInteger stored = clipboardIdentities.get(playerId);
+        return stored == null || stored.get() != System.identityHashCode(clipboard);
     }
 
     /**
-     * 取得指定的下載會話。
+     * Records the identity of the current clipboard so subsequent watcher ticks skip it.
      */
+    public void setClipboardIdentity(UUID playerId, Clipboard clipboard) {
+        clipboardIdentities.computeIfAbsent(playerId, id -> new AtomicInteger())
+                .set(System.identityHashCode(clipboard));
+    }
+
+    // ── Session management ──
+
+    public void setActiveSessionId(UUID playerId, String sessionId) {
+        activeSessionIds.put(playerId, sessionId);
+    }
+
+    public String getActiveSessionId(UUID playerId) {
+        return activeSessionIds.get(playerId);
+    }
+
+    public void clearActiveSession(UUID playerId) {
+        activeSessionIds.remove(playerId);
+    }
+
+    public void addDownloadSession(String sessionId, TransferSession session) {
+        downloadSessions.put(sessionId, session);
+    }
+
     public TransferSession getDownloadSession(String sessionId) {
         return downloadSessions.get(sessionId);
     }
 
-    /**
-     * 移除下載會話。
-     */
     public void removeDownloadSession(String sessionId) {
         downloadSessions.remove(sessionId);
     }
 
-    // ==================== 清理 ====================
+    // ── Cleanup ──
 
-    /**
-     * 移除指定玩家的所有資料。
-     */
-    public void removePlayer(UUID playerUuid) {
-        playerStates.remove(playerUuid);
-        localHashes.remove(playerUuid);
-        localData.remove(playerUuid);
-        downloadSessions.entrySet().removeIf(e -> e.getValue().getPlayerUuid().equals(playerUuid));
+    public void removePlayer(UUID playerId) {
+        playerStates.remove(playerId);
+        localHashes.remove(playerId);
+        clipboardIdentities.remove(playerId);
+        String sessionId = activeSessionIds.remove(playerId);
+        if (sessionId != null) {
+            downloadSessions.remove(sessionId);
+        }
     }
 
-    /**
-     * 清理所有資料。
-     */
-    public void cleanup() {
+    public void cleanupExpiredSessions(long timeoutMs) {
+        downloadSessions.entrySet().removeIf(entry -> entry.getValue().isExpired(timeoutMs));
+    }
+
+    public void shutdown() {
         playerStates.clear();
         localHashes.clear();
-        localData.clear();
+        clipboardIdentities.clear();
+        activeSessionIds.clear();
         downloadSessions.clear();
     }
 }

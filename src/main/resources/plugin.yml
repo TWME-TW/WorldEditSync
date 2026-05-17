@@ -2,13 +2,13 @@ name: WorldEditSync
 version: '${project.version}'
 main: dev.twme.worldeditsync.paper.WorldEditSyncPaper
 api-version: '1.13'
+folia-supported: true
 depend:
   - WorldEdit
 description: Sync WorldEdit clipboard across servers
 libraries:
   - io.minio:minio:8.6.0
-
 permissions:
   worldeditsync.sync:
-    description: Sync WorldEdit clipboard across servers
+    description: Allows clipboard synchronization across servers
     default: true
