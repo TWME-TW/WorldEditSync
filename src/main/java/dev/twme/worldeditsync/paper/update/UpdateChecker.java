@@ -9,6 +9,8 @@ import java.time.Duration;
 
 import org.bukkit.plugin.java.JavaPlugin;
 
+import dev.twme.worldeditsync.paper.util.SchedulerUtil;
+
 public class UpdateChecker {
 
     private static final String SPIGOT_RESOURCE_ID = "121682";
@@ -21,7 +23,7 @@ public class UpdateChecker {
     }
 
     public void checkAsync() {
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+        SchedulerUtil.runAsync(plugin, () -> {
             try {
                 HttpClient client = HttpClient.newBuilder()
                         .connectTimeout(Duration.ofSeconds(10))
@@ -34,8 +36,7 @@ public class UpdateChecker {
                 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
                 String latestVersion = response.body().trim();
-                String currentVersion = plugin.getDescription().getVersion();
-
+                String currentVersion = plugin.getPluginMeta().getVersion();
                 if (!currentVersion.equals(latestVersion)) {
                     plugin.getLogger().info("A new version is available: " + latestVersion
                             + " (current: " + currentVersion + ")");
