@@ -1,4 +1,4 @@
-# WorldEditSync
+# WorldEditSync PLS USE 0.0.6 ver
 
 WorldEditSync is a Minecraft plugin that synchronizes WorldEdit (FastAsyncWorldEdit) clipboards across multiple servers. It supports two sync modes: **Proxy mode** (via BungeeCord/Velocity Plugin Messages) and **S3 mode** (via any S3-compatible storage such as MinIO or AWS S3).
 
