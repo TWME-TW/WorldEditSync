@@ -11,6 +11,7 @@ import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.messages.ChannelIdentifier;
 
+import dev.twme.worldeditsync.common.crypto.MessageCipher;
 import dev.twme.worldeditsync.common.model.ClipboardPayload;
 import dev.twme.worldeditsync.common.protocol.ProtocolCodec;
 import dev.twme.worldeditsync.common.protocol.ProtocolCodec.ParsedMessage;
@@ -59,7 +60,7 @@ public class MessageHandler {
                 case CANCEL -> handleCancel(player, msg);
                 default -> logger.warn("Unexpected message type from Paper: " + msg.type());
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.error("Error handling message " + msg.type() + " from " + player.getUsername() + ": " + e.getMessage());
         }
     }
@@ -71,8 +72,11 @@ public class MessageHandler {
         int totalChunks = in.readInt();
         String hash = in.readUTF();
 
-        if (totalBytes <= 0 || totalBytes > maxClipboardSize) {
-            logger.warn("Upload rejected from " + player.getUsername() + ": totalBytes=" + totalBytes + " exceeds limit=" + maxClipboardSize);
+        long maxPayloadSize = (long) maxClipboardSize + MessageCipher.ENCRYPTION_OVERHEAD_BYTES;
+        if (sessionId.isBlank() || hash.isBlank() || totalBytes > maxPayloadSize
+                || !TransferSession.isValidLayout(totalBytes, totalChunks, chunkSize)) {
+            logger.warn("Upload rejected from " + player.getUsername()
+                    + ": invalid transfer layout (" + totalBytes + " bytes, " + totalChunks + " chunks)");
             byte[] cancelMsg = ProtocolCodec.encodeCancel(sessionId, "Clipboard too large");
             sendToPlayer(player, cancelMsg);
             return;
@@ -81,7 +85,8 @@ public class MessageHandler {
         TransferSession session = new TransferSession(sessionId, totalChunks, totalBytes, hash);
         store.addUploadSession(sessionId, player.getUniqueId(), session);
 
-            logger.debug("Upload begin from " + player.getUsername() + ": " + totalBytes + " bytes, " + totalChunks + " chunks");
+        sendToPlayer(player, ProtocolCodec.encodeUploadReady(sessionId));
+        logger.debug("Upload begin from " + player.getUsername() + ": " + totalBytes + " bytes, " + totalChunks + " chunks");
     }
 
     private void handleUploadChunk(Player player, ParsedMessage msg) throws IOException {
@@ -97,16 +102,29 @@ public class MessageHandler {
             return;
         }
         byte[] chunkData = in.readNBytes(chunkLength);
+        if (chunkData.length != chunkLength) {
+            rejectUpload(player, sessionId, "Truncated upload chunk");
+            return;
+        }
 
         TransferSession session = store.getUploadSession(sessionId);
         if (session == null) {
             logger.warn("Chunk for unknown upload session: " + sessionId);
             return;
         }
+        if (!player.getUniqueId().equals(store.getSessionOwner(sessionId))) {
+            logger.warn("Chunk owner mismatch for upload session: " + sessionId);
+            return;
+        }
 
-        session.addChunk(chunkIndex, chunkData);
+        try {
+            session.addChunk(chunkIndex, chunkData);
+        } catch (IllegalArgumentException e) {
+            rejectUpload(player, sessionId, e.getMessage());
+            return;
+        }
 
-        if (session.isComplete()) {
+        if (session.tryClaimCompletion()) {
             completeUpload(player, session, sessionId);
         }
     }
@@ -128,6 +146,13 @@ public class MessageHandler {
             logger.error("Failed to complete upload for " + player.getUsername() + ": " + e.getMessage());
             store.removeUploadSession(sessionId);
         }
+    }
+
+    private void rejectUpload(Player player, String sessionId, String reason) {
+        store.removeUploadSession(sessionId);
+        sendToPlayer(player, ProtocolCodec.encodeCancel(sessionId, reason));
+        logger.warn("Upload session rejected from " + player.getUsername()
+                + " (session: " + sessionId + "): " + reason);
     }
 
     private void handleDownloadRequest(Player player) {

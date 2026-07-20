@@ -60,7 +60,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
         // Start clipboard watcher for proxy mode (S3 mode has its own polling)
         if (paperConfig.isProxyMode()) {
             clipboardWatcher = new ClipboardWatcher(this, clipboardManager, clipboardSerializer,
-                    syncEngine, paperConfig.getTransferConfig());
+                    syncEngine);
             clipboardWatcher.start(
                     paperConfig.getTransferConfig().getWatcherInitialDelayTicks(),
                     paperConfig.getTransferConfig().getWatcherIntervalTicks());

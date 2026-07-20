@@ -43,6 +43,16 @@ public final class SchedulerUtil {
         }
     }
 
+    public static void runDelayedAsync(JavaPlugin plugin, Runnable task, long delayMs) {
+        if (FOLIA) {
+            plugin.getServer().getAsyncScheduler().runDelayed(
+                    plugin, $ -> task.run(), Math.max(1L, delayMs), TimeUnit.MILLISECONDS);
+        } else {
+            long delayTicks = Math.max(1L, (delayMs + 49L) / 50L);
+            plugin.getServer().getScheduler().runTaskLaterAsynchronously(plugin, task, delayTicks);
+        }
+    }
+
     /**
      * Run a task on the player's entity thread (Folia) or the main thread (Spigot/Paper).
      * On Folia, if the player is no longer valid when the task runs, it is silently skipped.

@@ -2,10 +2,7 @@ package dev.twme.worldeditsync.paper.clipboard;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-
-import com.sk89q.worldedit.extent.clipboard.Clipboard;
 
 import dev.twme.worldeditsync.common.model.SyncState;
 import dev.twme.worldeditsync.common.protocol.TransferSession;
@@ -20,10 +17,6 @@ public class ClipboardManager {
     private final ConcurrentHashMap<UUID, String> localHashes = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, String> activeSessionIds = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, TransferSession> downloadSessions = new ConcurrentHashMap<>();
-    /** Tracks System.identityHashCode of the last seen Clipboard object per player.
-     *  Used by ClipboardWatcher to detect genuine clipboard changes without
-     *  relying on serialized-bytes hashing (which is non-deterministic). */
-    private final ConcurrentHashMap<UUID, AtomicInteger> clipboardIdentities = new ConcurrentHashMap<>();
 
     // ── State management ──
 
@@ -98,24 +91,8 @@ public class ClipboardManager {
         localHashes.put(playerId, hash);
     }
 
-    // ── Clipboard identity (change detection) ──
-
-    /**
-     * Returns true if the given clipboard object is different from the last recorded one.
-     * Uses System.identityHashCode so that a new clipboard object from //copy is always
-     * treated as changed, while the same unchanged object is not re-uploaded.
-     */
-    public boolean isClipboardChanged(UUID playerId, Clipboard clipboard) {
-        AtomicInteger stored = clipboardIdentities.get(playerId);
-        return stored == null || stored.get() != System.identityHashCode(clipboard);
-    }
-
-    /**
-     * Records the identity of the current clipboard so subsequent watcher ticks skip it.
-     */
-    public void setClipboardIdentity(UUID playerId, Clipboard clipboard) {
-        clipboardIdentities.computeIfAbsent(playerId, id -> new AtomicInteger())
-                .set(System.identityHashCode(clipboard));
+    public void forgetClipboard(UUID playerId) {
+        localHashes.remove(playerId);
     }
 
     // ── Session management ──
@@ -149,7 +126,6 @@ public class ClipboardManager {
     public void removePlayer(UUID playerId) {
         playerStates.remove(playerId);
         localHashes.remove(playerId);
-        clipboardIdentities.remove(playerId);
         String sessionId = activeSessionIds.remove(playerId);
         if (sessionId != null) {
             downloadSessions.remove(sessionId);
@@ -163,7 +139,6 @@ public class ClipboardManager {
     public void shutdown() {
         playerStates.clear();
         localHashes.clear();
-        clipboardIdentities.clear();
         activeSessionIds.clear();
         downloadSessions.clear();
     }

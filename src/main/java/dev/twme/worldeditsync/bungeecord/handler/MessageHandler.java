@@ -8,6 +8,7 @@ import java.util.logging.Logger;
 
 import dev.twme.worldeditsync.bungeecord.storage.ClipboardStore;
 import dev.twme.worldeditsync.common.Constants;
+import dev.twme.worldeditsync.common.crypto.MessageCipher;
 import dev.twme.worldeditsync.common.model.ClipboardPayload;
 import dev.twme.worldeditsync.common.protocol.ProtocolCodec;
 import dev.twme.worldeditsync.common.protocol.ProtocolCodec.ParsedMessage;
@@ -52,7 +53,7 @@ public class MessageHandler {
                 case CANCEL -> handleCancel(player, msg);
                 default -> logger.warning("Unexpected message type from Paper: " + msg.type());
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.severe("Error handling message " + msg.type() + " from " + player.getName() + ": " + e.getMessage());
         }
     }
@@ -64,8 +65,11 @@ public class MessageHandler {
         int totalChunks = in.readInt();
         String hash = in.readUTF();
 
-        if (totalBytes <= 0 || totalBytes > maxClipboardSize) {
-            logger.warning("Upload rejected from " + player.getName() + ": totalBytes=" + totalBytes + " exceeds limit=" + maxClipboardSize);
+        long maxPayloadSize = (long) maxClipboardSize + MessageCipher.ENCRYPTION_OVERHEAD_BYTES;
+        if (sessionId.isBlank() || hash.isBlank() || totalBytes > maxPayloadSize
+                || !TransferSession.isValidLayout(totalBytes, totalChunks, chunkSize)) {
+            logger.warning("Upload rejected from " + player.getName()
+                    + ": invalid transfer layout (" + totalBytes + " bytes, " + totalChunks + " chunks)");
             byte[] cancelMsg = ProtocolCodec.encodeCancel(sessionId, "Clipboard too large");
             sendToPlayer(player, cancelMsg);
             return;
@@ -74,6 +78,7 @@ public class MessageHandler {
         TransferSession session = new TransferSession(sessionId, totalChunks, totalBytes, hash);
         store.addUploadSession(sessionId, player.getUniqueId(), session);
 
+        sendToPlayer(player, ProtocolCodec.encodeUploadReady(sessionId));
         logger.fine("Upload begin from " + player.getName() + ": " + totalBytes + " bytes, " + totalChunks + " chunks");
     }
 
@@ -90,16 +95,29 @@ public class MessageHandler {
             return;
         }
         byte[] chunkData = in.readNBytes(chunkLength);
+        if (chunkData.length != chunkLength) {
+            rejectUpload(player, sessionId, "Truncated upload chunk");
+            return;
+        }
 
         TransferSession session = store.getUploadSession(sessionId);
         if (session == null) {
             logger.warning("Chunk for unknown upload session: " + sessionId);
             return;
         }
+        if (!player.getUniqueId().equals(store.getSessionOwner(sessionId))) {
+            logger.warning("Chunk owner mismatch for upload session: " + sessionId);
+            return;
+        }
 
-        session.addChunk(chunkIndex, chunkData);
+        try {
+            session.addChunk(chunkIndex, chunkData);
+        } catch (IllegalArgumentException e) {
+            rejectUpload(player, sessionId, e.getMessage());
+            return;
+        }
 
-        if (session.isComplete()) {
+        if (session.tryClaimCompletion()) {
             completeUpload(player, session, sessionId);
         }
     }
@@ -122,6 +140,13 @@ public class MessageHandler {
             logger.severe("Failed to complete upload for " + player.getName() + ": " + e.getMessage());
             store.removeUploadSession(sessionId);
         }
+    }
+
+    private void rejectUpload(ProxiedPlayer player, String sessionId, String reason) {
+        store.removeUploadSession(sessionId);
+        sendToPlayer(player, ProtocolCodec.encodeCancel(sessionId, reason));
+        logger.warning("Upload session rejected from " + player.getName()
+                + " (session: " + sessionId + "): " + reason);
     }
 
     private void handleDownloadRequest(ProxiedPlayer player) {

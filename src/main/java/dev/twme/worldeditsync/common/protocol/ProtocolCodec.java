@@ -47,13 +47,21 @@ public final class ProtocolCodec {
     }
 
     public static byte[] encodeUploadAck(String sessionId) {
+        return encodeSessionMessage(MessageType.UPLOAD_ACK, sessionId);
+    }
+
+    public static byte[] encodeUploadReady(String sessionId) {
+        return encodeSessionMessage(MessageType.UPLOAD_READY, sessionId);
+    }
+
+    private static byte[] encodeSessionMessage(MessageType type, String sessionId) {
         try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
              DataOutputStream out = new DataOutputStream(bos)) {
-            writeHeader(out, MessageType.UPLOAD_ACK);
+            writeHeader(out, type);
             out.writeUTF(sessionId);
             return bos.toByteArray();
         } catch (IOException e) {
-            throw new RuntimeException("Failed to encode UPLOAD_ACK", e);
+            throw new RuntimeException("Failed to encode " + type, e);
         }
     }
 

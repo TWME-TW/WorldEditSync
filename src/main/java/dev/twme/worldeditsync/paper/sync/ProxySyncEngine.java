@@ -1,6 +1,8 @@
 package dev.twme.worldeditsync.paper.sync;
 
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 
 import org.bukkit.entity.Player;
@@ -19,7 +21,7 @@ import dev.twme.worldeditsync.paper.util.SchedulerUtil;
 /**
  * Proxy-mode sync engine: uploads/downloads clipboards via BungeeCord/Velocity Plugin Messages.
  */
-public class ProxySyncEngine implements SyncEngine {
+public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
 
     private final JavaPlugin plugin;
     private final ClipboardManager clipboardManager;
@@ -27,6 +29,7 @@ public class ProxySyncEngine implements SyncEngine {
     private final MessageCipher cipher;
     private final TransferConfig transferConfig;
     private final Logger logger;
+    private final ConcurrentHashMap<String, PendingUpload> pendingUploads = new ConcurrentHashMap<>();
 
     private PluginMessageHandler messageHandler;
 
@@ -44,7 +47,8 @@ public class ProxySyncEngine implements SyncEngine {
     @Override
     public void start() {
         plugin.getServer().getMessenger().registerOutgoingPluginChannel(plugin, Constants.CHANNEL);
-        messageHandler = new PluginMessageHandler(plugin, clipboardManager, clipboardSerializer, cipher, transferConfig);
+        messageHandler = new PluginMessageHandler(
+                plugin, clipboardManager, clipboardSerializer, cipher, transferConfig, this);
         plugin.getServer().getMessenger().registerIncomingPluginChannel(plugin, Constants.CHANNEL, messageHandler);
         logger.info("Proxy sync engine started on channel: " + Constants.CHANNEL);
     }
@@ -53,6 +57,7 @@ public class ProxySyncEngine implements SyncEngine {
     public void shutdown() {
         plugin.getServer().getMessenger().unregisterOutgoingPluginChannel(plugin, Constants.CHANNEL);
         plugin.getServer().getMessenger().unregisterIncomingPluginChannel(plugin, Constants.CHANNEL);
+        pendingUploads.clear();
         logger.info("Proxy sync engine shut down.");
     }
 
@@ -60,7 +65,7 @@ public class ProxySyncEngine implements SyncEngine {
     public void uploadClipboard(Player player, byte[] data, String hash) {
         UUID playerId = player.getUniqueId();
 
-        if (!clipboardManager.compareAndSetState(playerId, SyncState.IDLE, SyncState.UPLOADING)) {
+        if (!clipboardManager.compareAndSetState(playerId, SyncState.CHECKING, SyncState.UPLOADING)) {
             return;
         }
 
@@ -78,44 +83,124 @@ public class ProxySyncEngine implements SyncEngine {
         String sessionId = UUID.randomUUID().toString();
 
         clipboardManager.setActiveSessionId(playerId, sessionId);
+        pendingUploads.put(sessionId, new PendingUpload(playerId, payload, totalChunks));
 
-        // Send UPLOAD_BEGIN
         byte[] beginMsg = ProtocolCodec.encodeUploadBegin(sessionId, payload.length, totalChunks, hash);
-        player.sendPluginMessage(plugin, Constants.CHANNEL, beginMsg);
+        SchedulerUtil.runOnEntityThread(plugin, player, () -> {
+            if (player.isOnline() && sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
+                player.sendPluginMessage(plugin, Constants.CHANNEL, beginMsg);
+            }
+        });
 
-        // Send chunks asynchronously
+        SchedulerUtil.runDelayedAsync(
+                plugin,
+                () -> timeoutUpload(player, sessionId),
+                transferConfig.getSessionTimeoutMs());
+        logger.info("Clipboard upload started for " + player.getName()
+                + " (session: " + sessionId + ", " + data.length + " bytes)");
+    }
+
+    @Override
+    public void onUploadReady(Player player, String sessionId) {
+        UUID playerId = player.getUniqueId();
+        PendingUpload upload = pendingUploads.get(sessionId);
+        if (upload == null
+                || !upload.playerId.equals(playerId)
+                || !sessionId.equals(clipboardManager.getActiveSessionId(playerId))
+                || !upload.started.compareAndSet(false, true)) {
+            return;
+        }
+
+        sendChunks(player, sessionId, upload);
+    }
+
+    private void sendChunks(Player player, String sessionId, PendingUpload upload) {
         SchedulerUtil.runAsync(plugin, () -> {
             try {
-                for (int i = 0; i < totalChunks; i++) {
+                for (int i = 0; i < upload.totalChunks; i++) {
                     if (!player.isOnline()) {
-                        logger.fine("Player " + player.getName() + " went offline during upload, cancelling.");
-                        clipboardManager.clearActiveSession(playerId);
-                        clipboardManager.forceSetState(playerId, SyncState.IDLE);
                         return;
                     }
 
-                    int offset = i * chunkSize;
-                    int length = Math.min(chunkSize, payload.length - offset);
+                    int offset = i * transferConfig.getChunkSize();
+                    int length = Math.min(transferConfig.getChunkSize(), upload.payload.length - offset);
                     byte[] chunk = new byte[length];
-                    System.arraycopy(payload, offset, chunk, 0, length);
+                    System.arraycopy(upload.payload, offset, chunk, 0, length);
 
                     byte[] chunkMsg = ProtocolCodec.encodeUploadChunk(sessionId, i, chunk);
 
-                    final int chunkIndex = i;
-                    SchedulerUtil.runOnEntityThread(plugin, player, () ->
-                            player.sendPluginMessage(plugin, Constants.CHANNEL, chunkMsg));
+                    SchedulerUtil.runOnEntityThread(plugin, player, () -> {
+                        if (player.isOnline()
+                                && sessionId.equals(clipboardManager.getActiveSessionId(upload.playerId))) {
+                            player.sendPluginMessage(plugin, Constants.CHANNEL, chunkMsg);
+                        }
+                    });
 
-                    if (transferConfig.getChunkSendDelayMs() > 0 && i < totalChunks - 1) {
+                    if (transferConfig.getChunkSendDelayMs() > 0 && i < upload.totalChunks - 1) {
                         Thread.sleep(transferConfig.getChunkSendDelayMs());
                     }
                 }
-                // State will transition to IDLE when UPLOAD_ACK is received from proxy
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                clipboardManager.forceSetState(playerId, SyncState.IDLE);
-                clipboardManager.clearActiveSession(playerId);
+                failUpload(upload.playerId, sessionId);
+            } catch (Exception e) {
+                logger.warning("Clipboard upload failed for " + player.getName() + ": " + e.getMessage());
+                failUpload(upload.playerId, sessionId);
             }
         });
+    }
+
+    @Override
+    public void onUploadAcknowledged(Player player, String sessionId) {
+        UUID playerId = player.getUniqueId();
+        PendingUpload upload = pendingUploads.get(sessionId);
+        if (upload == null || !upload.playerId.equals(playerId)) {
+            return;
+        }
+
+        pendingUploads.remove(sessionId, upload);
+        if (sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
+            clipboardManager.clearActiveSession(playerId);
+            clipboardManager.forceSetState(playerId, SyncState.IDLE);
+        }
+        logger.info("Clipboard upload completed for " + player.getName()
+                + " (session: " + sessionId + ")");
+    }
+
+    @Override
+    public void onUploadCancelled(Player player, String sessionId, String reason) {
+        PendingUpload upload = pendingUploads.get(sessionId);
+        if (upload == null || !upload.playerId.equals(player.getUniqueId())) {
+            return;
+        }
+        pendingUploads.remove(sessionId, upload);
+        failUpload(upload.playerId, sessionId);
+        logger.warning("Clipboard upload cancelled for " + player.getName() + ": " + reason);
+    }
+
+    private void timeoutUpload(Player player, String sessionId) {
+        PendingUpload upload = pendingUploads.remove(sessionId);
+        if (upload == null) {
+            return;
+        }
+        SchedulerUtil.runOnEntityThread(plugin, player, () -> {
+            if (player.isOnline()) {
+                player.sendPluginMessage(plugin, Constants.CHANNEL,
+                        ProtocolCodec.encodeCancel(sessionId, "upload_timeout"));
+            }
+        });
+        failUpload(upload.playerId, sessionId);
+        logger.warning("Clipboard upload timed out for " + player.getName()
+                + " (session: " + sessionId + ")");
+    }
+
+    private void failUpload(UUID playerId, String sessionId) {
+        pendingUploads.remove(sessionId);
+        if (sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
+            clipboardManager.clearActiveSession(playerId);
+            clipboardManager.forgetClipboard(playerId);
+            clipboardManager.forceSetState(playerId, SyncState.IDLE);
+        }
     }
 
     @Override
@@ -134,6 +219,7 @@ public class ProxySyncEngine implements SyncEngine {
         if (state == SyncState.UPLOADING || state == SyncState.DOWNLOADING) {
             String sessionId = clipboardManager.getActiveSessionId(playerId);
             if (sessionId != null) {
+                pendingUploads.remove(sessionId);
                 byte[] cancelMsg = ProtocolCodec.encodeCancel(sessionId, "player_quit");
                 try {
                     player.sendPluginMessage(plugin, Constants.CHANNEL, cancelMsg);
@@ -148,5 +234,18 @@ public class ProxySyncEngine implements SyncEngine {
 
     public PluginMessageHandler getMessageHandler() {
         return messageHandler;
+    }
+
+    private static final class PendingUpload {
+        private final UUID playerId;
+        private final byte[] payload;
+        private final int totalChunks;
+        private final AtomicBoolean started = new AtomicBoolean();
+
+        private PendingUpload(UUID playerId, byte[] payload, int totalChunks) {
+            this.playerId = playerId;
+            this.payload = payload;
+            this.totalChunks = totalChunks;
+        }
     }
 }

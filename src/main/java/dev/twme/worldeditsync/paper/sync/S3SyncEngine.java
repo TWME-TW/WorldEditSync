@@ -130,15 +130,15 @@ public class S3SyncEngine implements SyncEngine {
                 return;
             }
 
-            // Use object identity to detect clipboard changes.
-            // Serialization is non-deterministic (e.g. GZIP timestamps vary between calls),
-            // so hashing serialized bytes would cause a perpetual upload loop.
-            if (clipboardManager.isClipboardChanged(playerId, clipboard)) {
-                // Local clipboard changed (new //copy): upload
-                byte[] serialized = clipboardSerializer.serialize(clipboard);
-                String hash = HashUtil.sha256Hex(serialized);
-                clipboardManager.setClipboardIdentity(playerId, clipboard);
-                clipboardManager.setLocalHash(playerId, hash);
+            byte[] serialized = clipboardSerializer.serialize(clipboard);
+            String hash = HashUtil.sha256Hex(serialized);
+            String localHash = clipboardManager.getLocalHash(playerId);
+
+            // On first observation, prefer an existing remote clipboard over stale
+            // session data that WorldEdit may still hold during a server switch.
+            if (localHash == null && !s3.getRemoteHash(playerId.toString()).isEmpty()) {
+                checkAndDownloadFromS3(player);
+            } else if (!hash.equals(localHash)) {
                 uploadClipboard(player, serialized, hash);
             } else {
                 // Local unchanged: check remote for updates
@@ -176,9 +176,6 @@ public class S3SyncEngine implements SyncEngine {
                 if (player.isOnline()) {
                     clipboardSerializer.setPlayerClipboard(player, clipboard);
                     clipboardManager.setLocalHash(playerId, actualHash);
-                    // Record identity so the watcher does not immediately re-upload
-                    // the just-downloaded clipboard.
-                    clipboardManager.setClipboardIdentity(playerId, clipboard);
                     logger.info("Clipboard synced from S3 for " + player.getName());
                 }
                 clipboardManager.forceSetState(playerId, SyncState.IDLE);

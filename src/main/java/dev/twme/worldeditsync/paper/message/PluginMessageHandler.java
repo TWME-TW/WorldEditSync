@@ -20,6 +20,7 @@ import dev.twme.worldeditsync.common.protocol.TransferSession;
 import dev.twme.worldeditsync.common.util.HashUtil;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardSerializer;
+import dev.twme.worldeditsync.paper.sync.UploadSessionListener;
 import dev.twme.worldeditsync.paper.util.SchedulerUtil;
 
 /**
@@ -32,16 +33,19 @@ public class PluginMessageHandler implements PluginMessageListener {
     private final ClipboardSerializer clipboardSerializer;
     private final MessageCipher cipher;
     private final TransferConfig transferConfig;
+    private final UploadSessionListener uploadSessionListener;
     private final Logger logger;
 
     public PluginMessageHandler(JavaPlugin plugin, ClipboardManager clipboardManager,
                                 ClipboardSerializer clipboardSerializer, MessageCipher cipher,
-                                TransferConfig transferConfig) {
+                                TransferConfig transferConfig,
+                                UploadSessionListener uploadSessionListener) {
         this.plugin = plugin;
         this.clipboardManager = clipboardManager;
         this.clipboardSerializer = clipboardSerializer;
         this.cipher = cipher;
         this.transferConfig = transferConfig;
+        this.uploadSessionListener = uploadSessionListener;
         this.logger = plugin.getLogger();
     }
 
@@ -59,13 +63,14 @@ public class PluginMessageHandler implements PluginMessageListener {
             switch (msg.type()) {
                 case SYNC_HASH -> handleSyncHash(player, msg);
                 case SYNC_NO_DATA -> handleSyncNoData(player);
+                case UPLOAD_READY -> handleUploadReady(player, msg);
                 case UPLOAD_ACK -> handleUploadAck(player, msg);
                 case DOWNLOAD_BEGIN -> handleDownloadBegin(player, msg);
                 case DOWNLOAD_CHUNK -> handleDownloadChunk(player, msg);
                 case CANCEL -> handleCancel(player, msg);
                 default -> logger.warning("Unexpected message type from proxy: " + msg.type());
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.severe("Error handling message " + msg.type() + " for " + player.getName() + ": " + e.getMessage());
         }
     }
@@ -107,18 +112,14 @@ public class PluginMessageHandler implements PluginMessageListener {
         logger.fine("Proxy has no clipboard data for " + player.getName());
     }
 
+    private void handleUploadReady(Player player, ParsedMessage msg) throws IOException {
+        DataInputStream in = ProtocolCodec.payloadStream(msg);
+        uploadSessionListener.onUploadReady(player, in.readUTF());
+    }
+
     private void handleUploadAck(Player player, ParsedMessage msg) throws IOException {
         DataInputStream in = ProtocolCodec.payloadStream(msg);
-        String sessionId = in.readUTF();
-
-        var playerId = player.getUniqueId();
-        String activeSession = clipboardManager.getActiveSessionId(playerId);
-
-        if (sessionId.equals(activeSession)) {
-            clipboardManager.clearActiveSession(playerId);
-            clipboardManager.forceSetState(playerId, SyncState.IDLE);
-            logger.fine("Upload acknowledged for " + player.getName() + " session: " + sessionId);
-        }
+        uploadSessionListener.onUploadAcknowledged(player, in.readUTF());
     }
 
     private void handleDownloadBegin(Player player, ParsedMessage msg) throws IOException {
@@ -129,10 +130,25 @@ public class PluginMessageHandler implements PluginMessageListener {
         String hash = in.readUTF();
 
         var playerId = player.getUniqueId();
+        long maxPayloadSize = (long) transferConfig.getMaxClipboardSize()
+                + MessageCipher.ENCRYPTION_OVERHEAD_BYTES;
+        if (sessionId.isBlank() || hash.isBlank() || totalBytes > maxPayloadSize
+                || !TransferSession.isValidLayout(totalBytes, totalChunks, transferConfig.getChunkSize())) {
+            logger.warning("Rejected invalid download session " + sessionId + " for " + player.getName());
+            clipboardManager.forceSetState(playerId, SyncState.IDLE);
+            player.sendPluginMessage(plugin, Constants.CHANNEL,
+                    ProtocolCodec.encodeCancel(sessionId, "invalid_download"));
+            return;
+        }
 
         TransferSession session = new TransferSession(sessionId, totalChunks, totalBytes, hash);
         clipboardManager.addDownloadSession(sessionId, session);
         clipboardManager.setActiveSessionId(playerId, sessionId);
+
+        SchedulerUtil.runDelayedAsync(
+                plugin,
+                () -> timeoutDownload(player, sessionId),
+                transferConfig.getSessionTimeoutMs());
 
         logger.fine("Download begin for " + player.getName() + ": " + totalBytes + " bytes, " + totalChunks + " chunks");
     }
@@ -142,17 +158,36 @@ public class PluginMessageHandler implements PluginMessageListener {
         String sessionId = in.readUTF();
         int chunkIndex = in.readInt();
         int chunkLength = in.readInt();
+        if (chunkLength <= 0 || chunkLength > transferConfig.getChunkSize()) {
+            rejectDownload(player, sessionId, "invalid_chunk_length");
+            return;
+        }
         byte[] chunkData = in.readNBytes(chunkLength);
+        if (chunkData.length != chunkLength) {
+            rejectDownload(player, sessionId, "truncated_chunk");
+            return;
+        }
 
         TransferSession session = clipboardManager.getDownloadSession(sessionId);
         if (session == null) {
             logger.warning("Received chunk for unknown session: " + sessionId);
             return;
         }
+        if (!sessionId.equals(clipboardManager.getActiveSessionId(player.getUniqueId()))) {
+            logger.warning("Received chunk for inactive session: " + sessionId);
+            return;
+        }
 
-        session.addChunk(chunkIndex, chunkData);
+        try {
+            session.addChunk(chunkIndex, chunkData);
+        } catch (IllegalArgumentException e) {
+            logger.warning("Rejected invalid download chunk for " + player.getName()
+                    + ": " + e.getMessage());
+            rejectDownload(player, sessionId, "invalid_chunk");
+            return;
+        }
 
-        if (session.isComplete()) {
+        if (session.tryClaimCompletion()) {
             completeDownload(player, session);
         }
     }
@@ -164,16 +199,14 @@ public class PluginMessageHandler implements PluginMessageListener {
         try {
             byte[] assembled = session.assemble();
 
-            // Verify hash before decryption (hash is of the original unencrypted data)
+            // The advertised hash covers the original unencrypted schematic.
             byte[] decrypted = cipher.decrypt(assembled);
             String actualHash = HashUtil.sha256Hex(decrypted);
 
             if (!actualHash.equals(session.getExpectedHash())) {
                 logger.warning("Hash mismatch after download for " + player.getName()
                         + ": expected " + session.getExpectedHash() + ", got " + actualHash);
-                clipboardManager.removeDownloadSession(sessionId);
-                clipboardManager.clearActiveSession(playerId);
-                clipboardManager.forceSetState(playerId, SyncState.IDLE);
+                rejectDownload(player, sessionId, "hash_mismatch");
                 return;
             }
 
@@ -184,9 +217,6 @@ public class PluginMessageHandler implements PluginMessageListener {
                 if (player.isOnline()) {
                     clipboardSerializer.setPlayerClipboard(player, clipboard);
                     clipboardManager.setLocalHash(playerId, actualHash);
-                    // Record the new clipboard object's identity so the watcher does not
-                    // immediately re-upload the just-downloaded clipboard.
-                    clipboardManager.setClipboardIdentity(playerId, clipboard);
                     logger.info("Clipboard synced for " + player.getName());
                 }
                 clipboardManager.removeDownloadSession(sessionId);
@@ -199,9 +229,37 @@ public class PluginMessageHandler implements PluginMessageListener {
             });
         } catch (Exception e) {
             logger.severe("Failed to complete download for " + player.getName() + ": " + e.getMessage());
-            clipboardManager.removeDownloadSession(sessionId);
-            clipboardManager.clearActiveSession(playerId);
-            clipboardManager.forceSetState(playerId, SyncState.IDLE);
+            rejectDownload(player, sessionId, "download_failed");
+        }
+    }
+
+    private void timeoutDownload(Player player, String sessionId) {
+        TransferSession session = clipboardManager.getDownloadSession(sessionId);
+        if (session == null || !session.isExpired(transferConfig.getSessionTimeoutMs())) {
+            return;
+        }
+
+        logger.warning("Clipboard download timed out for " + player.getName()
+                + " (session: " + sessionId + ")");
+        rejectDownload(player, sessionId, "download_timeout");
+    }
+
+    private void rejectDownload(Player player, String sessionId, String reason) {
+        var playerId = player.getUniqueId();
+        clipboardManager.removeDownloadSession(sessionId);
+        if (!sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
+            return;
+        }
+
+        clipboardManager.clearActiveSession(playerId);
+        clipboardManager.forceSetState(playerId, SyncState.IDLE);
+        if (player.isOnline()) {
+            SchedulerUtil.runOnEntityThread(plugin, player, () -> {
+                if (player.isOnline()) {
+                    player.sendPluginMessage(plugin, Constants.CHANNEL,
+                            ProtocolCodec.encodeCancel(sessionId, reason));
+                }
+            });
         }
     }
 
@@ -213,8 +271,14 @@ public class PluginMessageHandler implements PluginMessageListener {
         var playerId = player.getUniqueId();
         logger.fine("Transfer cancelled for " + player.getName() + ": " + reason);
 
-        clipboardManager.removeDownloadSession(sessionId);
-        clipboardManager.clearActiveSession(playerId);
-        clipboardManager.forceSetState(playerId, SyncState.IDLE);
+        uploadSessionListener.onUploadCancelled(player, sessionId, reason);
+
+        if (clipboardManager.getDownloadSession(sessionId) != null) {
+            clipboardManager.removeDownloadSession(sessionId);
+            if (sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
+                clipboardManager.clearActiveSession(playerId);
+                clipboardManager.forceSetState(playerId, SyncState.IDLE);
+            }
+        }
     }
 }

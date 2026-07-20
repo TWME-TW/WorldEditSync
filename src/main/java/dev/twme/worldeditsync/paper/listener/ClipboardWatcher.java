@@ -8,7 +8,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import com.sk89q.worldedit.extent.clipboard.Clipboard;
 
-import dev.twme.worldeditsync.common.config.TransferConfig;
+import dev.twme.worldeditsync.common.model.SyncState;
 import dev.twme.worldeditsync.common.util.HashUtil;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardSerializer;
@@ -26,18 +26,15 @@ public class ClipboardWatcher {
     private final ClipboardManager clipboardManager;
     private final ClipboardSerializer clipboardSerializer;
     private final SyncEngine syncEngine;
-    private final TransferConfig transferConfig;
     private final Logger logger;
     private Object watcherTask;
 
     public ClipboardWatcher(JavaPlugin plugin, ClipboardManager clipboardManager,
-                            ClipboardSerializer clipboardSerializer, SyncEngine syncEngine,
-                            TransferConfig transferConfig) {
+                            ClipboardSerializer clipboardSerializer, SyncEngine syncEngine) {
         this.plugin = plugin;
         this.clipboardManager = clipboardManager;
         this.clipboardSerializer = clipboardSerializer;
         this.syncEngine = syncEngine;
-        this.transferConfig = transferConfig;
         this.logger = plugin.getLogger();
     }
 
@@ -63,27 +60,31 @@ public class ClipboardWatcher {
     private void detectAndUpload(Player player) {
         UUID playerId = player.getUniqueId();
 
-        SchedulerUtil.runAsync(plugin, () -> {
-            try {
-                Clipboard clipboard = clipboardSerializer.getPlayerClipboard(player);
-                if (clipboard == null) return;
+        if (!clipboardManager.compareAndSetState(playerId, SyncState.IDLE, SyncState.CHECKING)) {
+            return;
+        }
 
-                // Use object identity to detect clipboard changes.
-                // Serialization is non-deterministic (e.g. GZIP timestamps vary between
-                // calls), so hashing serialized bytes would cause a perpetual upload loop
-                // even when the clipboard content has not changed.
-                if (!clipboardManager.isClipboardChanged(playerId, clipboard)) return;
-
-                byte[] serialized = clipboardSerializer.serialize(clipboard);
-                String hash = HashUtil.sha256Hex(serialized);
-
-                // Record both identity and hash before uploading so subsequent ticks skip this object
-                clipboardManager.setClipboardIdentity(playerId, clipboard);
-                clipboardManager.setLocalHash(playerId, hash);
-                syncEngine.uploadClipboard(player, serialized, hash);
-            } catch (Exception e) {
-                logger.warning("Clipboard detection error for " + player.getName() + ": " + e.getMessage());
+        try {
+            Clipboard clipboard = clipboardSerializer.getPlayerClipboard(player);
+            if (clipboard == null) {
+                return;
             }
-        });
+
+            byte[] serialized = clipboardSerializer.serialize(clipboard);
+            String hash = HashUtil.sha256Hex(serialized);
+
+            if (hash.equals(clipboardManager.getLocalHash(playerId))) {
+                return;
+            }
+
+            clipboardManager.setLocalHash(playerId, hash);
+            syncEngine.uploadClipboard(player, serialized, hash);
+        } catch (Exception e) {
+            logger.warning("Clipboard detection error for " + player.getName() + ": " + e.getMessage());
+        } finally {
+            if (clipboardManager.getState(playerId) == SyncState.CHECKING) {
+                clipboardManager.forceSetState(playerId, SyncState.IDLE);
+            }
+        }
     }
 }

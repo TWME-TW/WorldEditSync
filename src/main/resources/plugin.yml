@@ -7,7 +7,7 @@ depend:
   - WorldEdit
 description: Sync WorldEdit clipboard across servers
 libraries:
-  - io.minio:minio:8.6.0
+  - io.minio:minio:9.0.0
 permissions:
   worldeditsync.sync:
     description: Allows clipboard synchronization across servers

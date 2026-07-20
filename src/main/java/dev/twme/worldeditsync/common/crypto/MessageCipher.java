@@ -12,6 +12,7 @@ public class MessageCipher {
     private static final String ALGORITHM = "AES/GCM/NoPadding";
     private static final int GCM_IV_LENGTH = 12;
     private static final int GCM_TAG_BITS = 128;
+    public static final int ENCRYPTION_OVERHEAD_BYTES = GCM_IV_LENGTH + GCM_TAG_BITS / 8;
 
     private final SecretKeySpec secretKey;
     private final SecureRandom secureRandom = new SecureRandom();

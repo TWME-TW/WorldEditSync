@@ -8,6 +8,7 @@ public enum MessageType {
 
     // Proxy → Paper: Upload acknowledgement
     UPLOAD_ACK((byte) 0x03),
+    UPLOAD_READY((byte) 0x04),
 
     // Proxy → Paper: Sync on server switch
     SYNC_HASH((byte) 0x10),
