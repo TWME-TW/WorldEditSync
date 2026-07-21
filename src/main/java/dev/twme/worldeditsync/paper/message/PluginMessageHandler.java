@@ -26,6 +26,9 @@ import dev.twme.worldeditsync.common.util.HashUtil;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardSerializer;
 import dev.twme.worldeditsync.paper.sync.UploadSessionListener;
+import dev.twme.worldeditsync.paper.ui.ActionBarProgress;
+import dev.twme.worldeditsync.paper.ui.ActionBarProgress.Operation;
+import dev.twme.worldeditsync.paper.ui.ActionBarProgress.ProgressHandle;
 import dev.twme.worldeditsync.paper.util.SchedulerUtil;
 
 /**
@@ -40,15 +43,18 @@ public class PluginMessageHandler implements PluginMessageListener {
     private final PluginMessageCodec pluginMessageCodec;
     private final TransferConfig transferConfig;
     private final UploadSessionListener uploadSessionListener;
+    private final ActionBarProgress actionBarProgress;
     private final Logger logger;
     private final InboundMessageLimiter inboundMessageLimiter = new InboundMessageLimiter();
     private final ConcurrentHashMap<UUID, Long> invalidMessageWarnings = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ProgressHandle> downloadProgress = new ConcurrentHashMap<>();
 
     public PluginMessageHandler(JavaPlugin plugin, ClipboardManager clipboardManager,
                                 ClipboardSerializer clipboardSerializer, MessageCipher cipher,
                                 PluginMessageCodec pluginMessageCodec,
                                 TransferConfig transferConfig,
-                                UploadSessionListener uploadSessionListener) {
+                                UploadSessionListener uploadSessionListener,
+                                ActionBarProgress actionBarProgress) {
         this.plugin = plugin;
         this.clipboardManager = clipboardManager;
         this.clipboardSerializer = clipboardSerializer;
@@ -56,6 +62,7 @@ public class PluginMessageHandler implements PluginMessageListener {
         this.pluginMessageCodec = pluginMessageCodec;
         this.transferConfig = transferConfig;
         this.uploadSessionListener = uploadSessionListener;
+        this.actionBarProgress = actionBarProgress;
         this.logger = plugin.getLogger();
     }
 
@@ -209,6 +216,11 @@ public class PluginMessageHandler implements PluginMessageListener {
         TransferSession session = new TransferSession(sessionId, totalChunks, totalBytes, hash);
         clipboardManager.addDownloadSession(sessionId, session);
         clipboardManager.setActiveSessionId(playerId, sessionId);
+        ProgressHandle progress = actionBarProgress.begin(player, Operation.DOWNLOAD);
+        ProgressHandle previous = downloadProgress.put(sessionId, progress);
+        if (previous != null) {
+            previous.cancel();
+        }
 
         SchedulerUtil.runDelayedAsync(
                 plugin,
@@ -261,8 +273,9 @@ public class PluginMessageHandler implements PluginMessageListener {
             return;
         }
 
+        boolean added;
         try {
-            session.addChunk(chunkIndex, chunkData);
+            added = session.addChunk(chunkIndex, chunkData);
         } catch (IllegalArgumentException e) {
             logger.warning("Rejected invalid download chunk for " + player.getName()
                     + ": " + e.getMessage());
@@ -270,8 +283,17 @@ public class PluginMessageHandler implements PluginMessageListener {
             return;
         }
 
+        if (!added) {
+            return;
+        }
+
         if (session.tryClaimCompletion()) {
             completeDownload(player, session);
+        } else {
+            ProgressHandle progress = downloadProgress.get(sessionId);
+            if (progress != null) {
+                progress.update((double) session.getReceivedBytes() / session.getTotalBytes());
+            }
         }
     }
 
@@ -310,6 +332,7 @@ public class PluginMessageHandler implements PluginMessageListener {
                 || clipboardManager.getState(playerId) != SyncState.DOWNLOADING
                 || !sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
             clipboardManager.removeDownloadSession(sessionId);
+            cancelDownloadProgress(sessionId);
             if (clipboardManager.isTracked(playerId)
                     && sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
                 clipboardManager.clearActiveSession(playerId);
@@ -326,6 +349,7 @@ public class PluginMessageHandler implements PluginMessageListener {
             clipboardManager.forceSetState(playerId, SyncState.IDLE);
             player.sendPluginMessage(plugin, Constants.CHANNEL,
                     pluginMessageCodec.encode(ProtocolCodec.encodeDownloadAck(sessionId)));
+            completeDownloadProgress(sessionId);
             logger.info("Clipboard synced for " + player.getName());
         } catch (Exception e) {
             logger.severe("Failed to apply clipboard for " + player.getName() + ": " + e.getMessage());
@@ -363,6 +387,7 @@ public class PluginMessageHandler implements PluginMessageListener {
     private void rejectDownload(Player player, String sessionId, String reason) {
         var playerId = player.getUniqueId();
         clipboardManager.removeDownloadSession(sessionId);
+        failDownloadProgress(sessionId);
         if (!sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
             return;
         }
@@ -390,6 +415,7 @@ public class PluginMessageHandler implements PluginMessageListener {
 
         var playerId = player.getUniqueId();
         logger.fine("Transfer cancelled for " + player.getName() + ": " + reason);
+        failDownloadProgress(sessionId);
 
         uploadSessionListener.onUploadCancelled(player, sessionId, reason);
 
@@ -434,5 +460,33 @@ public class PluginMessageHandler implements PluginMessageListener {
     public void removePlayer(UUID playerId) {
         invalidMessageWarnings.remove(playerId);
         inboundMessageLimiter.remove(playerId);
+        downloadProgress.forEach((sessionId, progress) -> {
+            if (progress.playerId().equals(playerId)
+                    && downloadProgress.remove(sessionId, progress)) {
+                progress.cancel();
+            }
+        });
+        actionBarProgress.removePlayer(playerId);
+    }
+
+    private void completeDownloadProgress(String sessionId) {
+        ProgressHandle progress = downloadProgress.remove(sessionId);
+        if (progress != null) {
+            progress.complete();
+        }
+    }
+
+    private void failDownloadProgress(String sessionId) {
+        ProgressHandle progress = downloadProgress.remove(sessionId);
+        if (progress != null) {
+            progress.fail();
+        }
+    }
+
+    private void cancelDownloadProgress(String sessionId) {
+        ProgressHandle progress = downloadProgress.remove(sessionId);
+        if (progress != null) {
+            progress.cancel();
+        }
     }
 }

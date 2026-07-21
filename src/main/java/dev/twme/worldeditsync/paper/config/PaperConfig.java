@@ -8,6 +8,7 @@ public class PaperConfig {
 
     private String syncMode = "proxy";
     private String token = "";
+    private boolean actionBarEnabled = true;
 
     // S3 settings
     private String s3Endpoint = "http://localhost:9000";
@@ -33,6 +34,7 @@ public class PaperConfig {
         syncMode = configuredMode == null ? "" : configuredMode.trim();
         String configuredToken = config.getString("token", "");
         token = configuredToken == null ? "" : configuredToken;
+        actionBarEnabled = config.getBoolean("action-bar.enabled", actionBarEnabled);
 
         s3Endpoint = config.getString("s3.endpoint", s3Endpoint);
         s3AccessKey = config.getString("s3.access-key", s3AccessKey);
@@ -88,6 +90,10 @@ public class PaperConfig {
 
     public String getToken() {
         return token;
+    }
+
+    public boolean isActionBarEnabled() {
+        return actionBarEnabled;
     }
 
     public String getS3Endpoint() {

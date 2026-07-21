@@ -14,6 +14,12 @@ sync-mode: "proxy"
 # S3/database mode may leave this empty, but stored clipboards will be plaintext.
 token: ""
 
+# Show clipboard upload/download status to players in the Action Bar.
+# Intermediate progress updates are coalesced and limited to at most one per
+# second per player. Start and completion are each shown at most once.
+action-bar:
+  enabled: true
+
 # S3 storage settings (only used when sync-mode is "s3")
 s3:
   # S3-compatible endpoint URL (e.g. MinIO server address)

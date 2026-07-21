@@ -18,6 +18,7 @@ import dev.twme.worldeditsync.paper.storage.S3ClipboardStorage;
 import dev.twme.worldeditsync.paper.sync.ProxySyncEngine;
 import dev.twme.worldeditsync.paper.sync.StorageSyncEngine;
 import dev.twme.worldeditsync.paper.sync.SyncEngine;
+import dev.twme.worldeditsync.paper.ui.ActionBarProgress;
 import dev.twme.worldeditsync.paper.update.UpdateChecker;
 
 public class WorldEditSyncPaper extends JavaPlugin {
@@ -27,6 +28,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
     private ClipboardSerializer clipboardSerializer;
     private SyncEngine syncEngine;
     private ClipboardWatcher clipboardWatcher;
+    private ActionBarProgress actionBarProgress;
 
     @Override
     public void onEnable() {
@@ -49,6 +51,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
         // Core components
         clipboardManager = new ClipboardManager();
         clipboardSerializer = new ClipboardSerializer();
+        actionBarProgress = new ActionBarProgress(this, paperConfig.isActionBarEnabled());
         MessageCipher cipher = new MessageCipher(paperConfig.getToken());
 
         if (cipher.isEnabled()) {
@@ -111,12 +114,15 @@ public class WorldEditSyncPaper extends JavaPlugin {
         if (clipboardManager != null) {
             clipboardManager.shutdown();
         }
+        if (actionBarProgress != null) {
+            actionBarProgress.shutdown();
+        }
         getLogger().info("WorldEditSync disabled.");
     }
 
     private void initProxyMode(MessageCipher cipher, PluginMessageCodec pluginMessageCodec) {
         syncEngine = new ProxySyncEngine(this, clipboardManager, clipboardSerializer,
-                cipher, pluginMessageCodec, paperConfig.getTransferConfig());
+                cipher, pluginMessageCodec, paperConfig.getTransferConfig(), actionBarProgress);
         getLogger().info("Initializing Proxy sync mode.");
     }
 
@@ -133,7 +139,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
 
         syncEngine = new StorageSyncEngine(this, clipboardManager, clipboardSerializer,
                 new S3ClipboardStorage(s3), paperConfig.getTransferConfig(),
-                paperConfig.getS3CheckIntervalTicks());
+                paperConfig.getS3CheckIntervalTicks(), actionBarProgress);
         getLogger().info("Initializing S3 sync mode.");
     }
 
@@ -167,7 +173,8 @@ public class WorldEditSyncPaper extends JavaPlugin {
             }
             syncEngine = new StorageSyncEngine(
                     this, clipboardManager, clipboardSerializer, storage,
-                    paperConfig.getTransferConfig(), settings.checkIntervalTicks());
+                    paperConfig.getTransferConfig(), settings.checkIntervalTicks(),
+                    actionBarProgress);
             getLogger().info("Initializing database sync mode (backend: "
                     + settings.type().name().toLowerCase(java.util.Locale.ROOT) + ").");
         } catch (IllegalArgumentException e) {
