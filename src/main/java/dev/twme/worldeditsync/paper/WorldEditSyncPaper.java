@@ -7,11 +7,16 @@ import dev.twme.worldeditsync.common.protocol.PluginMessageCodec;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardSerializer;
 import dev.twme.worldeditsync.paper.config.PaperConfig;
+import dev.twme.worldeditsync.paper.config.DatabaseSettings;
+import dev.twme.worldeditsync.paper.config.StorageType;
 import dev.twme.worldeditsync.paper.listener.ClipboardWatcher;
 import dev.twme.worldeditsync.paper.listener.PlayerListener;
 import dev.twme.worldeditsync.paper.s3.S3StorageManager;
+import dev.twme.worldeditsync.paper.storage.JdbcClipboardStorage;
+import dev.twme.worldeditsync.paper.storage.RedisClipboardStorage;
+import dev.twme.worldeditsync.paper.storage.S3ClipboardStorage;
 import dev.twme.worldeditsync.paper.sync.ProxySyncEngine;
-import dev.twme.worldeditsync.paper.sync.S3SyncEngine;
+import dev.twme.worldeditsync.paper.sync.StorageSyncEngine;
 import dev.twme.worldeditsync.paper.sync.SyncEngine;
 import dev.twme.worldeditsync.paper.update.UpdateChecker;
 
@@ -30,7 +35,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
         paperConfig.load(this);
         if (!paperConfig.isSupportedMode()) {
             getLogger().severe("Unsupported sync-mode '" + paperConfig.getSyncMode()
-                    + "'. Expected 'proxy' or 's3'. WorldEditSync will be disabled.");
+                    + "'. Expected 'proxy', 's3', or 'database'. WorldEditSync will be disabled.");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -53,8 +58,18 @@ public class WorldEditSyncPaper extends JavaPlugin {
         }
 
         // Initialize sync engine based on mode
+        if (paperConfig.isDatabaseMode()
+                && !paperConfig.getDatabaseSettings().isSupported()) {
+            getLogger().severe("Unsupported database.type. Expected redis, mysql, mariadb, "
+                    + "postgresql, or sqlite. WorldEditSync will be disabled.");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+
         if (paperConfig.isS3Mode()) {
             initS3Mode(cipher);
+        } else if (paperConfig.isDatabaseMode()) {
+            initDatabaseMode(cipher);
         } else {
             initProxyMode(cipher, new PluginMessageCodec(paperConfig.getToken()));
         }
@@ -70,7 +85,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
         // Register player events
         getServer().getPluginManager().registerEvents(new PlayerListener(syncEngine), this);
 
-        // Start clipboard watcher for proxy mode (S3 mode has its own polling)
+        // Storage-backed modes have their own polling; proxy mode needs this watcher.
         if (paperConfig.isProxyMode()) {
             clipboardWatcher = new ClipboardWatcher(this, clipboardManager, clipboardSerializer,
                     syncEngine);
@@ -116,8 +131,47 @@ public class WorldEditSyncPaper extends JavaPlugin {
                 paperConfig.getTransferConfig().getMaxClipboardSize(),
                 getLogger());
 
-        syncEngine = new S3SyncEngine(this, clipboardManager, clipboardSerializer,
-                s3, paperConfig.getTransferConfig(), paperConfig.getS3CheckIntervalTicks());
+        syncEngine = new StorageSyncEngine(this, clipboardManager, clipboardSerializer,
+                new S3ClipboardStorage(s3), paperConfig.getTransferConfig(),
+                paperConfig.getS3CheckIntervalTicks());
         getLogger().info("Initializing S3 sync mode.");
+    }
+
+    private void initDatabaseMode(MessageCipher cipher) {
+        DatabaseSettings settings = paperConfig.getDatabaseSettings();
+        String url = settings.resolveUrl(getDataFolder().toPath());
+        try {
+            dev.twme.worldeditsync.common.storage.ClipboardStorage storage;
+            if (settings.type() == StorageType.REDIS) {
+                storage = new RedisClipboardStorage(
+                        url,
+                        settings.keyPrefix(),
+                        settings.poolSize(),
+                        settings.connectionTimeoutMs(),
+                        settings.ttlMinutes(),
+                        cipher,
+                        paperConfig.getTransferConfig().getMaxClipboardSize(),
+                        getLogger());
+            } else {
+                storage = new JdbcClipboardStorage(
+                        settings.type(),
+                        url,
+                        settings.username(),
+                        settings.password(),
+                        settings.table(),
+                        settings.poolSize(),
+                        settings.connectionTimeoutMs(),
+                        settings.ttlMinutes(),
+                        cipher,
+                        paperConfig.getTransferConfig().getMaxClipboardSize());
+            }
+            syncEngine = new StorageSyncEngine(
+                    this, clipboardManager, clipboardSerializer, storage,
+                    paperConfig.getTransferConfig(), settings.checkIntervalTicks());
+            getLogger().info("Initializing database sync mode (backend: "
+                    + settings.type().name().toLowerCase(java.util.Locale.ROOT) + ").");
+        } catch (IllegalArgumentException e) {
+            getLogger().severe("Invalid database configuration: " + e.getMessage());
+        }
     }
 }

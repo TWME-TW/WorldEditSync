@@ -4,7 +4,7 @@ import org.bukkit.entity.Player;
 
 /**
  * Abstraction for clipboard sync engines.
- * Implementations: ProxySyncEngine (Plugin Message), S3SyncEngine (S3 storage).
+ * Implementations: ProxySyncEngine (Plugin Message) and StorageSyncEngine (shared storage).
  */
 public interface SyncEngine {
 

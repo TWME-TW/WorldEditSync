@@ -2,7 +2,6 @@ package dev.twme.worldeditsync.paper.s3;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.util.Collections;
 import java.util.logging.Logger;
 
 import dev.twme.worldeditsync.common.crypto.MessageCipher;
@@ -22,6 +21,7 @@ import io.minio.errors.ErrorResponseException;
 public class S3StorageManager {
 
     private static final String HASH_METADATA_KEY = "clipboard-hash";
+    private static final String UPDATED_AT_METADATA_KEY = "updated-at";
     private static final String OBJECT_PREFIX = "clipboards/";
 
     private final String endpoint;
@@ -84,6 +84,11 @@ public class S3StorageManager {
      */
     public void uploadClipboard(MinioClient client, String playerId,
                                 byte[] data, String hash) throws Exception {
+        uploadClipboard(client, playerId, data, hash, System.currentTimeMillis());
+    }
+
+    public void uploadClipboard(MinioClient client, String playerId,
+                                byte[] data, String hash, long updatedAt) throws Exception {
         if (data.length <= 0 || data.length > maxClipboardSize
                 || !ProtocolValidation.isSha256(hash)) {
             throw new IOException("Clipboard data or hash is invalid");
@@ -95,7 +100,9 @@ public class S3StorageManager {
                 .bucket(bucket)
                 .object(objectName)
                 .stream(new ByteArrayInputStream(encrypted), (long) encrypted.length, -1L)
-                .userMetadata(Collections.singletonMap(HASH_METADATA_KEY, hash))
+                .userMetadata(java.util.Map.of(
+                        HASH_METADATA_KEY, hash,
+                        UPDATED_AT_METADATA_KEY, Long.toString(updatedAt)))
                 .build());
     }
 
@@ -112,7 +119,8 @@ public class S3StorageManager {
             if (stat.size() <= 0 || stat.size() > maxPayloadSize) {
                 throw new IOException("S3 clipboard object exceeds configured size limit");
             }
-            return new RemoteObject(true, hash, stat.size());
+            long updatedAt = parseUpdatedAt(stat.userMetadata().getFirst(UPDATED_AT_METADATA_KEY));
+            return new RemoteObject(true, hash, stat.size(), updatedAt);
         } catch (ErrorResponseException e) {
             if (isNotFound(e)) {
                 return RemoteObject.missing();
@@ -155,9 +163,20 @@ public class S3StorageManager {
         return "NoSuchKey".equals(code) || "NoSuchObject".equals(code) || "NotFound".equals(code);
     }
 
-    public record RemoteObject(boolean exists, String hash, long encryptedSize) {
+    private long parseUpdatedAt(String value) {
+        if (value == null || value.isBlank()) {
+            return 0L;
+        }
+        try {
+            return Math.max(0L, Long.parseLong(value));
+        } catch (NumberFormatException ignored) {
+            return 0L;
+        }
+    }
+
+    public record RemoteObject(boolean exists, String hash, long encryptedSize, long updatedAt) {
         public static RemoteObject missing() {
-            return new RemoteObject(false, "", 0L);
+            return new RemoteObject(false, "", 0L, 0L);
         }
     }
 }

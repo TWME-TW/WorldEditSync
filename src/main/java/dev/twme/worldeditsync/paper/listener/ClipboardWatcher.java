@@ -20,7 +20,7 @@ import dev.twme.worldeditsync.paper.util.SchedulerUtil;
 /**
  * Periodically polls online players' WorldEdit clipboards to detect changes.
  * Acts as a fallback detection mechanism in Proxy mode.
- * In S3 mode, S3SyncEngine handles its own polling.
+ * In storage-backed modes, StorageSyncEngine handles its own polling.
  */
 public class ClipboardWatcher {
 
