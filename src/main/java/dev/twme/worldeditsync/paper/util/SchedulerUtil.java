@@ -35,11 +35,21 @@ public final class SchedulerUtil {
      * Run a task asynchronously (off the main/region thread).
      * Equivalent to {@code runTaskAsynchronously} on Spigot/Paper.
      */
-    public static void runAsync(JavaPlugin plugin, Runnable task) {
+    public static Object runAsync(JavaPlugin plugin, Runnable task) {
         if (FOLIA) {
-            plugin.getServer().getAsyncScheduler().runNow(plugin, $ -> task.run());
+            return plugin.getServer().getAsyncScheduler().runNow(plugin, $ -> task.run());
         } else {
-            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, task);
+            return plugin.getServer().getScheduler().runTaskAsynchronously(plugin, task);
+        }
+    }
+
+    public static Object runDelayedAsync(JavaPlugin plugin, Runnable task, long delayMs) {
+        if (FOLIA) {
+            return plugin.getServer().getAsyncScheduler().runDelayed(
+                    plugin, $ -> task.run(), Math.max(1L, delayMs), TimeUnit.MILLISECONDS);
+        } else {
+            long delayTicks = Math.max(1L, (delayMs + 49L) / 50L);
+            return plugin.getServer().getScheduler().runTaskLaterAsynchronously(plugin, task, delayTicks);
         }
     }
 
@@ -47,12 +57,29 @@ public final class SchedulerUtil {
      * Run a task on the player's entity thread (Folia) or the main thread (Spigot/Paper).
      * On Folia, if the player is no longer valid when the task runs, it is silently skipped.
      */
-    public static void runOnEntityThread(JavaPlugin plugin, Player player, Runnable task) {
+    public static Object runOnEntityThread(JavaPlugin plugin, Player player, Runnable task) {
         if (FOLIA) {
-            player.getScheduler().run(plugin, $ -> task.run(), null);
+            return player.getScheduler().run(plugin, $ -> task.run(), null);
         } else {
-            plugin.getServer().getScheduler().runTask(plugin, task);
+            return plugin.getServer().getScheduler().runTask(plugin, task);
         }
+    }
+
+    public static Object runDelayedOnEntityThread(JavaPlugin plugin, Player player, Runnable task,
+                                                   long delayTicks) {
+        long safeDelay = Math.max(1L, delayTicks);
+        if (FOLIA) {
+            return player.getScheduler().runDelayed(plugin, $ -> task.run(), null, safeDelay);
+        }
+        return plugin.getServer().getScheduler().runTaskLater(plugin, task, safeDelay);
+    }
+
+    /** Run Bukkit-wide work on the global region thread (Folia) or main thread. */
+    public static Object runOnGlobalThread(JavaPlugin plugin, Runnable task) {
+        if (FOLIA) {
+            return plugin.getServer().getGlobalRegionScheduler().run(plugin, $ -> task.run());
+        }
+        return plugin.getServer().getScheduler().runTask(plugin, task);
     }
 
     /**

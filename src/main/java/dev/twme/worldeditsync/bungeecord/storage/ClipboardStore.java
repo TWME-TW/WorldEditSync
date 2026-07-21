@@ -15,11 +15,26 @@ public class ClipboardStore {
     private final ConcurrentHashMap<UUID, ClipboardPayload> clipboards = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, TransferSession> uploadSessions = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, UUID> sessionOwners = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, String> ownerSessions = new ConcurrentHashMap<>();
 
     // ── Clipboard storage ──
 
     public void storeClipboard(UUID playerId, byte[] data, String hash) {
         clipboards.put(playerId, new ClipboardPayload(data, hash));
+    }
+
+    /** Commit only if this is still the player's current upload session. */
+    public synchronized boolean completeUploadSession(String sessionId, UUID playerId,
+                                                      TransferSession expectedSession,
+                                                      byte[] data, String hash) {
+        if (!sessionId.equals(ownerSessions.get(playerId))
+                || !playerId.equals(sessionOwners.get(sessionId))
+                || uploadSessions.get(sessionId) != expectedSession) {
+            return false;
+        }
+        clipboards.put(playerId, new ClipboardPayload(data, hash));
+        removeUploadSession(sessionId);
+        return true;
     }
 
     public ClipboardPayload getClipboard(UUID playerId) {
@@ -32,9 +47,18 @@ public class ClipboardStore {
 
     // ── Upload session management ──
 
-    public void addUploadSession(String sessionId, UUID playerId, TransferSession session) {
+    public synchronized boolean addUploadSession(String sessionId, UUID playerId, TransferSession session) {
+        if (uploadSessions.containsKey(sessionId)) {
+            return false;
+        }
+        String previousSession = ownerSessions.put(playerId, sessionId);
+        if (previousSession != null) {
+            uploadSessions.remove(previousSession);
+            sessionOwners.remove(previousSession);
+        }
         uploadSessions.put(sessionId, session);
         sessionOwners.put(sessionId, playerId);
+        return true;
     }
 
     public TransferSession getUploadSession(String sessionId) {
@@ -45,17 +69,63 @@ public class ClipboardStore {
         return sessionOwners.get(sessionId);
     }
 
-    public void removeUploadSession(String sessionId) {
+    public synchronized void removeUploadSession(String sessionId) {
         uploadSessions.remove(sessionId);
-        sessionOwners.remove(sessionId);
+        UUID owner = sessionOwners.remove(sessionId);
+        if (owner != null) {
+            ownerSessions.remove(owner, sessionId);
+        }
+    }
+
+    public synchronized boolean removeUploadSession(String sessionId, UUID expectedOwner) {
+        if (!expectedOwner.equals(sessionOwners.get(sessionId))) {
+            return false;
+        }
+        removeUploadSession(sessionId);
+        return true;
+    }
+
+    public synchronized boolean removeUploadSession(String sessionId, UUID expectedOwner,
+                                                    TransferSession expectedSession) {
+        if (uploadSessions.get(sessionId) != expectedSession) {
+            return false;
+        }
+        return removeUploadSession(sessionId, expectedOwner);
+    }
+
+    public boolean hasActiveUpload(UUID playerId) {
+        return ownerSessions.containsKey(playerId);
+    }
+
+    public synchronized TransferSession getUploadSessionForOwner(UUID playerId) {
+        String sessionId = ownerSessions.get(playerId);
+        return sessionId == null ? null : uploadSessions.get(sessionId);
+    }
+
+    public synchronized void removeUploadSessionForOwner(UUID playerId) {
+        String sessionId = ownerSessions.get(playerId);
+        if (sessionId != null) {
+            removeUploadSession(sessionId);
+        }
+    }
+
+    public synchronized void removeIncompleteUploadSessionForOwner(UUID playerId) {
+        String sessionId = ownerSessions.get(playerId);
+        TransferSession session = sessionId == null ? null : uploadSessions.get(sessionId);
+        if (session != null && !session.isComplete()) {
+            removeUploadSession(sessionId);
+        }
     }
 
     // ── Cleanup ──
 
-    public void cleanupExpiredSessions(long timeoutMs) {
+    public synchronized void cleanupExpiredSessions(long timeoutMs) {
         uploadSessions.entrySet().removeIf(entry -> {
-            if (entry.getValue().isExpired(timeoutMs)) {
-                sessionOwners.remove(entry.getKey());
+            if (!entry.getValue().isComplete() && entry.getValue().isExpired(timeoutMs)) {
+                UUID owner = sessionOwners.remove(entry.getKey());
+                if (owner != null) {
+                    ownerSessions.remove(owner, entry.getKey());
+                }
                 return true;
             }
             return false;
@@ -67,9 +137,10 @@ public class ClipboardStore {
         clipboards.entrySet().removeIf(entry -> entry.getValue().isExpired(ttlMinutes));
     }
 
-    public void shutdown() {
+    public synchronized void shutdown() {
         clipboards.clear();
         uploadSessions.clear();
         sessionOwners.clear();
+        ownerSessions.clear();
     }
 }

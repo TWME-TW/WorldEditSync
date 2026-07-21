@@ -3,6 +3,7 @@ package dev.twme.worldeditsync.paper;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import dev.twme.worldeditsync.common.crypto.MessageCipher;
+import dev.twme.worldeditsync.common.protocol.PluginMessageCodec;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardSerializer;
 import dev.twme.worldeditsync.paper.config.PaperConfig;
@@ -27,6 +28,18 @@ public class WorldEditSyncPaper extends JavaPlugin {
         // Load configuration
         paperConfig = new PaperConfig();
         paperConfig.load(this);
+        if (!paperConfig.isSupportedMode()) {
+            getLogger().severe("Unsupported sync-mode '" + paperConfig.getSyncMode()
+                    + "'. Expected 'proxy' or 's3'. WorldEditSync will be disabled.");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+        if (paperConfig.isProxyMode() && paperConfig.getToken().isBlank()) {
+            getLogger().severe("Proxy mode requires a non-empty token so players cannot forge or read "
+                    + "clipboard plugin messages. WorldEditSync will be disabled.");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
 
         // Core components
         clipboardManager = new ClipboardManager();
@@ -43,7 +56,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
         if (paperConfig.isS3Mode()) {
             initS3Mode(cipher);
         } else {
-            initProxyMode(cipher);
+            initProxyMode(cipher, new PluginMessageCodec(paperConfig.getToken()));
         }
 
         if (syncEngine == null) {
@@ -60,7 +73,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
         // Start clipboard watcher for proxy mode (S3 mode has its own polling)
         if (paperConfig.isProxyMode()) {
             clipboardWatcher = new ClipboardWatcher(this, clipboardManager, clipboardSerializer,
-                    syncEngine, paperConfig.getTransferConfig());
+                    syncEngine);
             clipboardWatcher.start(
                     paperConfig.getTransferConfig().getWatcherInitialDelayTicks(),
                     paperConfig.getTransferConfig().getWatcherIntervalTicks());
@@ -86,9 +99,9 @@ public class WorldEditSyncPaper extends JavaPlugin {
         getLogger().info("WorldEditSync disabled.");
     }
 
-    private void initProxyMode(MessageCipher cipher) {
+    private void initProxyMode(MessageCipher cipher, PluginMessageCodec pluginMessageCodec) {
         syncEngine = new ProxySyncEngine(this, clipboardManager, clipboardSerializer,
-                cipher, paperConfig.getTransferConfig());
+                cipher, pluginMessageCodec, paperConfig.getTransferConfig());
         getLogger().info("Initializing Proxy sync mode.");
     }
 
@@ -100,6 +113,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
                 paperConfig.getS3Bucket(),
                 paperConfig.getS3Region(),
                 cipher,
+                paperConfig.getTransferConfig().getMaxClipboardSize(),
                 getLogger());
 
         syncEngine = new S3SyncEngine(this, clipboardManager, clipboardSerializer,

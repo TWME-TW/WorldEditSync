@@ -17,7 +17,7 @@ public class TransferConfig {
     }
 
     public void setChunkSize(int chunkSize) {
-        this.chunkSize = chunkSize;
+        this.chunkSize = Math.max(1, Math.min(Constants.MAX_CHUNK_SIZE, chunkSize));
     }
 
     public int getMaxClipboardSize() {
@@ -25,7 +25,8 @@ public class TransferConfig {
     }
 
     public void setMaxClipboardSize(int maxClipboardSize) {
-        this.maxClipboardSize = maxClipboardSize;
+        this.maxClipboardSize = Math.max(1, Math.min(
+                Constants.ABSOLUTE_MAX_CLIPBOARD_SIZE, maxClipboardSize));
     }
 
     public long getSessionTimeoutMs() {
@@ -33,7 +34,7 @@ public class TransferConfig {
     }
 
     public void setSessionTimeoutMs(long sessionTimeoutMs) {
-        this.sessionTimeoutMs = sessionTimeoutMs;
+        this.sessionTimeoutMs = Math.max(5_000L, sessionTimeoutMs);
     }
 
     public long getChunkSendDelayMs() {
@@ -41,7 +42,7 @@ public class TransferConfig {
     }
 
     public void setChunkSendDelayMs(long chunkSendDelayMs) {
-        this.chunkSendDelayMs = chunkSendDelayMs;
+        this.chunkSendDelayMs = Math.max(0L, Math.min(1_000L, chunkSendDelayMs));
     }
 
     public int getWatcherIntervalTicks() {
@@ -49,7 +50,7 @@ public class TransferConfig {
     }
 
     public void setWatcherIntervalTicks(int watcherIntervalTicks) {
-        this.watcherIntervalTicks = watcherIntervalTicks;
+        this.watcherIntervalTicks = Math.max(1, watcherIntervalTicks);
     }
 
     public int getWatcherInitialDelayTicks() {
@@ -57,7 +58,7 @@ public class TransferConfig {
     }
 
     public void setWatcherInitialDelayTicks(int watcherInitialDelayTicks) {
-        this.watcherInitialDelayTicks = watcherInitialDelayTicks;
+        this.watcherInitialDelayTicks = Math.max(1, watcherInitialDelayTicks);
     }
 
     public long getClipboardTtlMinutes() {
@@ -65,6 +66,6 @@ public class TransferConfig {
     }
 
     public void setClipboardTtlMinutes(long clipboardTtlMinutes) {
-        this.clipboardTtlMinutes = clipboardTtlMinutes;
+        this.clipboardTtlMinutes = Math.max(0L, clipboardTtlMinutes);
     }
 }

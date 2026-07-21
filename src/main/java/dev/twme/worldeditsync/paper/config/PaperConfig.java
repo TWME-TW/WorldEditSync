@@ -24,15 +24,17 @@ public class PaperConfig {
         plugin.reloadConfig();
         FileConfiguration config = plugin.getConfig();
 
-        syncMode = config.getString("sync-mode", "proxy");
-        token = config.getString("token", "");
+        String configuredMode = config.getString("sync-mode", "proxy");
+        syncMode = configuredMode == null ? "" : configuredMode.trim();
+        String configuredToken = config.getString("token", "");
+        token = configuredToken == null ? "" : configuredToken;
 
         s3Endpoint = config.getString("s3.endpoint", s3Endpoint);
         s3AccessKey = config.getString("s3.access-key", s3AccessKey);
         s3SecretKey = config.getString("s3.secret-key", s3SecretKey);
         s3Bucket = config.getString("s3.bucket", s3Bucket);
         s3Region = config.getString("s3.region", s3Region);
-        s3CheckIntervalTicks = config.getInt("s3.check-interval", s3CheckIntervalTicks);
+        s3CheckIntervalTicks = Math.max(1, config.getInt("s3.check-interval", s3CheckIntervalTicks));
 
         transferConfig.setChunkSize(config.getInt("transfer.chunk-size", transferConfig.getChunkSize()));
         transferConfig.setMaxClipboardSize(config.getInt("transfer.max-clipboard-size", transferConfig.getMaxClipboardSize()));
@@ -49,6 +51,10 @@ public class PaperConfig {
 
     public boolean isS3Mode() {
         return "s3".equalsIgnoreCase(syncMode);
+    }
+
+    public boolean isSupportedMode() {
+        return isProxyMode() || isS3Mode();
     }
 
     public String getSyncMode() {
