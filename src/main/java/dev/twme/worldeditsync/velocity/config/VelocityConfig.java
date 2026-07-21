@@ -8,6 +8,7 @@ import java.util.Map;
 
 import org.slf4j.Logger;
 import org.yaml.snakeyaml.Yaml;
+import dev.twme.worldeditsync.common.Constants;
 
 public class VelocityConfig {
 
@@ -48,6 +49,12 @@ public class VelocityConfig {
                     chunkSendDelayMs = getLong(transfer, "chunk-send-delay-ms", chunkSendDelayMs);
                     maxClipboardSize = getInt(transfer, "max-clipboard-size", maxClipboardSize);
                 }
+                chunkSize = Math.max(1, Math.min(Constants.MAX_CHUNK_SIZE, chunkSize));
+                maxClipboardSize = Math.max(1, Math.min(
+                        Constants.ABSOLUTE_MAX_CLIPBOARD_SIZE, maxClipboardSize));
+                chunkSendDelayMs = Math.max(0L, Math.min(1_000L, chunkSendDelayMs));
+                sessionTimeoutMs = Math.max(5_000L, sessionTimeoutMs);
+                clipboardTtlMinutes = Math.max(0L, clipboardTtlMinutes);
             }
         } catch (IOException e) {
             logger.error("Failed to load config: " + e.getMessage());

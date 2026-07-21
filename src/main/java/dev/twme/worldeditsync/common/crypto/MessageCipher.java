@@ -58,7 +58,7 @@ public class MessageCipher {
         if (!enabled) {
             return data;
         }
-        if (data.length < GCM_IV_LENGTH) {
+        if (data.length < ENCRYPTION_OVERHEAD_BYTES) {
             throw new SecurityException("Data too short for decryption");
         }
         try {

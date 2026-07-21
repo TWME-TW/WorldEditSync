@@ -12,4 +12,6 @@ public interface UploadSessionListener {
     void onUploadAcknowledged(Player player, String sessionId);
 
     void onUploadCancelled(Player player, String sessionId, String reason);
+
+    void onDownloadFailed(Player player, String reason);
 }

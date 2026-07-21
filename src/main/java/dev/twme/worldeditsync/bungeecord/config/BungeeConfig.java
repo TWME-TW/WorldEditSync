@@ -9,6 +9,7 @@ import net.md_5.bungee.api.plugin.Plugin;
 import net.md_5.bungee.config.Configuration;
 import net.md_5.bungee.config.ConfigurationProvider;
 import net.md_5.bungee.config.YamlConfiguration;
+import dev.twme.worldeditsync.common.Constants;
 
 public class BungeeConfig {
 
@@ -39,11 +40,20 @@ public class BungeeConfig {
         try {
             Configuration config = ConfigurationProvider.getProvider(YamlConfiguration.class).load(configFile);
             token = config.getString("token", "");
+            if (token == null) {
+                token = "";
+            }
             sessionTimeoutMs = config.getLong("transfer.session-timeout-ms", sessionTimeoutMs);
             clipboardTtlMinutes = config.getLong("transfer.clipboard-ttl-minutes", clipboardTtlMinutes);
             chunkSize = config.getInt("transfer.chunk-size", chunkSize);
             chunkSendDelayMs = config.getLong("transfer.chunk-send-delay-ms", chunkSendDelayMs);
             maxClipboardSize = config.getInt("transfer.max-clipboard-size", maxClipboardSize);
+            chunkSize = Math.max(1, Math.min(Constants.MAX_CHUNK_SIZE, chunkSize));
+            maxClipboardSize = Math.max(1, Math.min(
+                    Constants.ABSOLUTE_MAX_CLIPBOARD_SIZE, maxClipboardSize));
+            chunkSendDelayMs = Math.max(0L, Math.min(1_000L, chunkSendDelayMs));
+            sessionTimeoutMs = Math.max(5_000L, sessionTimeoutMs);
+            clipboardTtlMinutes = Math.max(0L, clipboardTtlMinutes);
         } catch (IOException e) {
             plugin.getLogger().severe("Failed to load config: " + e.getMessage());
         }

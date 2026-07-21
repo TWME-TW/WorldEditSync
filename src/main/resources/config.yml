@@ -5,11 +5,11 @@
 # - s3: Sync via S3-compatible storage (e.g. MinIO). No proxy plugin needed.
 sync-mode: "proxy"
 
-# Token for encrypting data (AES-256-GCM).
-# - proxy mode: encrypts Plugin Messages between Paper and Proxy.
+# Token for authenticated encryption (AES-256-GCM).
+# - proxy mode: REQUIRED. Protects Plugin Messages between Paper and Proxy.
 # - s3 mode: encrypts clipboard data before uploading to S3.
 # This MUST be the same on all Paper servers and the Proxy (BungeeCord/Velocity).
-# Leave empty to disable encryption (not recommended in production).
+# S3 mode may leave this empty, but the stored clipboard will be plaintext.
 token: ""
 
 # S3 storage settings (only used when sync-mode is "s3")

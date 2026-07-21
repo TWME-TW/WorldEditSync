@@ -14,6 +14,7 @@ import dev.twme.worldeditsync.common.protocol.TransferSession;
 public class ClipboardManager {
 
     private final ConcurrentHashMap<UUID, AtomicReference<SyncState>> playerStates = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Object> playerTokens = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, String> localHashes = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, String> activeSessionIds = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, TransferSession> downloadSessions = new ConcurrentHashMap<>();
@@ -38,6 +39,7 @@ public class ClipboardManager {
      * S3 mode passes IDLE directly because it manages its own join-time check.
      */
     public void initPlayer(UUID playerId, SyncState initialState) {
+        playerTokens.put(playerId, new Object());
         playerStates.put(playerId, new AtomicReference<>(initialState));
     }
 
@@ -79,6 +81,15 @@ public class ClipboardManager {
 
     public boolean isTracked(UUID playerId) {
         return playerStates.containsKey(playerId);
+    }
+
+    /** Identifies one connection lifetime so old async work cannot affect a rejoin. */
+    public Object getPlayerToken(UUID playerId) {
+        return playerTokens.get(playerId);
+    }
+
+    public boolean isCurrentPlayerToken(UUID playerId, Object token) {
+        return token != null && playerTokens.get(playerId) == token;
     }
 
     // ── Hash cache ──
@@ -125,6 +136,7 @@ public class ClipboardManager {
 
     public void removePlayer(UUID playerId) {
         playerStates.remove(playerId);
+        playerTokens.remove(playerId);
         localHashes.remove(playerId);
         String sessionId = activeSessionIds.remove(playerId);
         if (sessionId != null) {
@@ -138,6 +150,7 @@ public class ClipboardManager {
 
     public void shutdown() {
         playerStates.clear();
+        playerTokens.clear();
         localHashes.clear();
         activeSessionIds.clear();
         downloadSessions.clear();

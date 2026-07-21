@@ -9,7 +9,7 @@ WorldEditSync is a Minecraft plugin that synchronizes WorldEdit (FastAsyncWorldE
 - **S3 mode**: Sync via S3-compatible storage (e.g. MinIO) — no proxy plugin required.
 - Automatically upload and download clipboards when players switch servers or modify their clipboard.
 - Efficient chunk-based data transfer to handle large clipboards.
-- AES-256-GCM encryption for all transferred data (configurable via `token`).
+- AES-256-GCM authenticated encryption for proxy control messages and clipboard data.
 - SHA-256 hash comparison to avoid unnecessary transfers.
 - Permissions support to control which players can use the synchronization feature.
 
@@ -37,7 +37,8 @@ WorldEditSync is a Minecraft plugin that synchronizes WorldEdit (FastAsyncWorldE
    - Edit `plugins/WorldEditSync/config.yml` on your Paper server.
    - Set `sync-mode` to `"proxy"` (default) or `"s3"`.
    - If using S3 mode, fill in the `s3` section with your storage endpoint and credentials.
-   - Set `token` to a shared secret string to enable AES-256-GCM encryption (recommended).
+   - In Proxy mode, set the same non-empty `token` on every Paper server and the Proxy. It is required to prevent players from reading or forging plugin messages.
+   - In S3 mode, `token` is optional but strongly recommended because an empty token stores plaintext clipboards.
 
 ### S3 Mode Configuration Example
 

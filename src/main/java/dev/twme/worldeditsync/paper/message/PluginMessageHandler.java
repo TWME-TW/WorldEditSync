@@ -2,6 +2,8 @@ package dev.twme.worldeditsync.paper.message;
 
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 import org.bukkit.entity.Player;
@@ -14,8 +16,11 @@ import dev.twme.worldeditsync.common.Constants;
 import dev.twme.worldeditsync.common.config.TransferConfig;
 import dev.twme.worldeditsync.common.crypto.MessageCipher;
 import dev.twme.worldeditsync.common.model.SyncState;
+import dev.twme.worldeditsync.common.protocol.InboundMessageLimiter;
+import dev.twme.worldeditsync.common.protocol.PluginMessageCodec;
 import dev.twme.worldeditsync.common.protocol.ProtocolCodec;
 import dev.twme.worldeditsync.common.protocol.ProtocolCodec.ParsedMessage;
+import dev.twme.worldeditsync.common.protocol.ProtocolValidation;
 import dev.twme.worldeditsync.common.protocol.TransferSession;
 import dev.twme.worldeditsync.common.util.HashUtil;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
@@ -32,18 +37,23 @@ public class PluginMessageHandler implements PluginMessageListener {
     private final ClipboardManager clipboardManager;
     private final ClipboardSerializer clipboardSerializer;
     private final MessageCipher cipher;
+    private final PluginMessageCodec pluginMessageCodec;
     private final TransferConfig transferConfig;
     private final UploadSessionListener uploadSessionListener;
     private final Logger logger;
+    private final InboundMessageLimiter inboundMessageLimiter = new InboundMessageLimiter();
+    private final ConcurrentHashMap<UUID, Long> invalidMessageWarnings = new ConcurrentHashMap<>();
 
     public PluginMessageHandler(JavaPlugin plugin, ClipboardManager clipboardManager,
                                 ClipboardSerializer clipboardSerializer, MessageCipher cipher,
+                                PluginMessageCodec pluginMessageCodec,
                                 TransferConfig transferConfig,
                                 UploadSessionListener uploadSessionListener) {
         this.plugin = plugin;
         this.clipboardManager = clipboardManager;
         this.clipboardSerializer = clipboardSerializer;
         this.cipher = cipher;
+        this.pluginMessageCodec = pluginMessageCodec;
         this.transferConfig = transferConfig;
         this.uploadSessionListener = uploadSessionListener;
         this.logger = plugin.getLogger();
@@ -53,16 +63,22 @@ public class PluginMessageHandler implements PluginMessageListener {
     public void onPluginMessageReceived(String channel, Player player, byte[] data) {
         if (!Constants.CHANNEL.equals(channel)) return;
 
-        ParsedMessage msg = ProtocolCodec.decode(data);
+        int messageLength = data == null ? -1 : data.length;
+        if (!inboundMessageLimiter.tryAcquire(player.getUniqueId(), messageLength)) {
+            warnInvalidMessage(player, "Rejected rate-limited protocol message");
+            return;
+        }
+
+        ParsedMessage msg = pluginMessageCodec.decode(data);
         if (msg == null) {
-            logger.warning("Received invalid protocol message from proxy for " + player.getName());
+            warnInvalidMessage(player, "Received invalid or unauthenticated protocol message");
             return;
         }
 
         try {
             switch (msg.type()) {
                 case SYNC_HASH -> handleSyncHash(player, msg);
-                case SYNC_NO_DATA -> handleSyncNoData(player);
+                case SYNC_NO_DATA -> handleSyncNoData(player, msg);
                 case UPLOAD_READY -> handleUploadReady(player, msg);
                 case UPLOAD_ACK -> handleUploadAck(player, msg);
                 case DOWNLOAD_BEGIN -> handleDownloadBegin(player, msg);
@@ -77,15 +93,23 @@ public class PluginMessageHandler implements PluginMessageListener {
 
     private void handleSyncHash(Player player, ParsedMessage msg) throws IOException {
         DataInputStream in = ProtocolCodec.payloadStream(msg);
+        String requestId = in.readUTF();
         String remoteHash = in.readUTF();
-
-        var playerId = player.getUniqueId();
-
-        // Accept transition from PENDING_SYNC (initial join gate) or IDLE (server switch)
-        if (!clipboardManager.transitionFromPendingOrIdle(playerId, SyncState.CHECKING)) {
-            logger.fine("Ignoring SYNC_HASH for " + player.getName() + ": not in PENDING_SYNC or IDLE state");
+        if (!ProtocolValidation.isSessionId(requestId)
+                || !ProtocolValidation.isSha256(remoteHash)
+                || !ProtocolValidation.exhausted(in)) {
+            warnInvalidMessage(player, "Rejected malformed SYNC_HASH");
             return;
         }
+
+        var playerId = player.getUniqueId();
+        if (!requestId.equals(clipboardManager.getActiveSessionId(playerId))
+                || !clipboardManager.compareAndSetState(
+                        playerId, SyncState.PENDING_SYNC, SyncState.CHECKING)) {
+            logger.fine("Ignoring stale SYNC_HASH for " + player.getName());
+            return;
+        }
+        clipboardManager.clearActiveSession(playerId);
 
         String localHash = clipboardManager.getLocalHash(playerId);
 
@@ -101,29 +125,59 @@ public class PluginMessageHandler implements PluginMessageListener {
             return;
         }
 
-        byte[] requestMsg = ProtocolCodec.encodeDownloadRequest();
+        String downloadRequestId = UUID.randomUUID().toString();
+        clipboardManager.setActiveSessionId(playerId, downloadRequestId);
+        byte[] requestMsg = pluginMessageCodec.encode(
+                ProtocolCodec.encodeDownloadRequest(downloadRequestId));
         player.sendPluginMessage(plugin, Constants.CHANNEL, requestMsg);
+        SchedulerUtil.runDelayedAsync(plugin,
+                () -> timeoutDownloadRequest(player, downloadRequestId),
+                transferConfig.getSessionTimeoutMs());
         logger.fine("Hash mismatch for " + player.getName() + ", requesting download.");
     }
 
-    private void handleSyncNoData(Player player) {
-        // Proxy has no data: release PENDING_SYNC or IDLE gate unconditionally so the watcher can upload
-        clipboardManager.forceSetState(player.getUniqueId(), SyncState.IDLE);
+    private void handleSyncNoData(Player player, ParsedMessage msg) throws IOException {
+        DataInputStream in = ProtocolCodec.payloadStream(msg);
+        String requestId = in.readUTF();
+        if (!ProtocolValidation.isSessionId(requestId) || !ProtocolValidation.exhausted(in)) {
+            warnInvalidMessage(player, "Rejected malformed SYNC_NO_DATA");
+            return;
+        }
+
+        UUID playerId = player.getUniqueId();
+        if (!requestId.equals(clipboardManager.getActiveSessionId(playerId))
+                || !clipboardManager.compareAndSetState(
+                        playerId, SyncState.PENDING_SYNC, SyncState.IDLE)) {
+            logger.fine("Ignoring stale SYNC_NO_DATA for " + player.getName());
+            return;
+        }
+        clipboardManager.clearActiveSession(playerId);
         logger.fine("Proxy has no clipboard data for " + player.getName());
     }
 
     private void handleUploadReady(Player player, ParsedMessage msg) throws IOException {
         DataInputStream in = ProtocolCodec.payloadStream(msg);
-        uploadSessionListener.onUploadReady(player, in.readUTF());
+        String sessionId = in.readUTF();
+        if (ProtocolValidation.isSessionId(sessionId) && ProtocolValidation.exhausted(in)) {
+            uploadSessionListener.onUploadReady(player, sessionId);
+        } else {
+            warnInvalidMessage(player, "Rejected malformed UPLOAD_READY");
+        }
     }
 
     private void handleUploadAck(Player player, ParsedMessage msg) throws IOException {
         DataInputStream in = ProtocolCodec.payloadStream(msg);
-        uploadSessionListener.onUploadAcknowledged(player, in.readUTF());
+        String sessionId = in.readUTF();
+        if (ProtocolValidation.isSessionId(sessionId) && ProtocolValidation.exhausted(in)) {
+            uploadSessionListener.onUploadAcknowledged(player, sessionId);
+        } else {
+            warnInvalidMessage(player, "Rejected malformed UPLOAD_ACK");
+        }
     }
 
     private void handleDownloadBegin(Player player, ParsedMessage msg) throws IOException {
         DataInputStream in = ProtocolCodec.payloadStream(msg);
+        String requestId = in.readUTF();
         String sessionId = in.readUTF();
         int totalBytes = in.readInt();
         int totalChunks = in.readInt();
@@ -132,12 +186,23 @@ public class PluginMessageHandler implements PluginMessageListener {
         var playerId = player.getUniqueId();
         long maxPayloadSize = (long) transferConfig.getMaxClipboardSize()
                 + MessageCipher.ENCRYPTION_OVERHEAD_BYTES;
-        if (sessionId.isBlank() || hash.isBlank() || totalBytes > maxPayloadSize
+        if (!ProtocolValidation.isSessionId(requestId)
+                || !ProtocolValidation.isSessionId(sessionId)
+                || !ProtocolValidation.isSha256(hash)
+                || !ProtocolValidation.exhausted(in)
+                || totalBytes > maxPayloadSize
                 || !TransferSession.isValidLayout(totalBytes, totalChunks, transferConfig.getChunkSize())) {
-            logger.warning("Rejected invalid download session " + sessionId + " for " + player.getName());
-            clipboardManager.forceSetState(playerId, SyncState.IDLE);
-            player.sendPluginMessage(plugin, Constants.CHANNEL,
-                    ProtocolCodec.encodeCancel(sessionId, "invalid_download"));
+            warnInvalidMessage(player, "Rejected malformed DOWNLOAD_BEGIN");
+            if (ProtocolValidation.isSessionId(sessionId)) {
+                sendOnEntityThread(player, ProtocolCodec.encodeCancel(sessionId, "invalid_download"));
+            }
+            return;
+        }
+
+        if (clipboardManager.getState(playerId) != SyncState.DOWNLOADING
+                || !requestId.equals(clipboardManager.getActiveSessionId(playerId))) {
+            warnInvalidMessage(player, "Rejected unsolicited DOWNLOAD_BEGIN");
+            sendOnEntityThread(player, ProtocolCodec.encodeCancel(sessionId, "unexpected_download"));
             return;
         }
 
@@ -158,12 +223,19 @@ public class PluginMessageHandler implements PluginMessageListener {
         String sessionId = in.readUTF();
         int chunkIndex = in.readInt();
         int chunkLength = in.readInt();
-        if (chunkLength <= 0 || chunkLength > transferConfig.getChunkSize()) {
+        if (!ProtocolValidation.isSessionId(sessionId)
+                || chunkIndex < 0
+                || chunkLength <= 0
+                || chunkLength > transferConfig.getChunkSize()) {
+            warnInvalidMessage(player, "Rejected malformed DOWNLOAD_CHUNK");
+            if (!ProtocolValidation.isSessionId(sessionId)) {
+                return;
+            }
             rejectDownload(player, sessionId, "invalid_chunk_length");
             return;
         }
         byte[] chunkData = in.readNBytes(chunkLength);
-        if (chunkData.length != chunkLength) {
+        if (chunkData.length != chunkLength || !ProtocolValidation.exhausted(in)) {
             rejectDownload(player, sessionId, "truncated_chunk");
             return;
         }
@@ -175,6 +247,17 @@ public class PluginMessageHandler implements PluginMessageListener {
         }
         if (!sessionId.equals(clipboardManager.getActiveSessionId(player.getUniqueId()))) {
             logger.warning("Received chunk for inactive session: " + sessionId);
+            return;
+        }
+        if (chunkIndex >= session.getTotalChunks()) {
+            rejectDownload(player, sessionId, "invalid_chunk_index");
+            return;
+        }
+        int expectedLength = Math.min(
+                transferConfig.getChunkSize(),
+                session.getTotalBytes() - chunkIndex * transferConfig.getChunkSize());
+        if (chunkLength != expectedLength) {
+            rejectDownload(player, sessionId, "invalid_chunk_layout");
             return;
         }
 
@@ -195,53 +278,86 @@ public class PluginMessageHandler implements PluginMessageListener {
     private void completeDownload(Player player, TransferSession session) {
         var playerId = player.getUniqueId();
         String sessionId = session.getSessionId();
+        String playerName = player.getName();
+
+        SchedulerUtil.runAsync(plugin, () -> {
+            try {
+                byte[] assembled = session.assemble();
+                byte[] decrypted = cipher.decrypt(assembled);
+                String actualHash = HashUtil.sha256Hex(decrypted);
+
+                if (!actualHash.equalsIgnoreCase(session.getExpectedHash())) {
+                    logger.warning("Hash mismatch after download for " + playerName
+                            + ": expected " + session.getExpectedHash() + ", got " + actualHash);
+                    rejectDownload(player, sessionId, "hash_mismatch");
+                    return;
+                }
+
+                Clipboard clipboard = clipboardSerializer.deserialize(decrypted);
+                SchedulerUtil.runOnEntityThread(plugin, player,
+                        () -> applyDownloadedClipboard(player, sessionId, clipboard, actualHash));
+            } catch (Exception e) {
+                logger.severe("Failed to complete download for " + playerName + ": " + e.getMessage());
+                rejectDownload(player, sessionId, "download_failed");
+            }
+        });
+    }
+
+    private void applyDownloadedClipboard(Player player, String sessionId,
+                                          Clipboard clipboard, String actualHash) {
+        UUID playerId = player.getUniqueId();
+        if (!player.isOnline()
+                || clipboardManager.getState(playerId) != SyncState.DOWNLOADING
+                || !sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
+            clipboardManager.removeDownloadSession(sessionId);
+            if (clipboardManager.isTracked(playerId)
+                    && sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
+                clipboardManager.clearActiveSession(playerId);
+                clipboardManager.forceSetState(playerId, SyncState.PENDING_SYNC);
+            }
+            return;
+        }
 
         try {
-            byte[] assembled = session.assemble();
-
-            // The advertised hash covers the original unencrypted schematic.
-            byte[] decrypted = cipher.decrypt(assembled);
-            String actualHash = HashUtil.sha256Hex(decrypted);
-
-            if (!actualHash.equals(session.getExpectedHash())) {
-                logger.warning("Hash mismatch after download for " + player.getName()
-                        + ": expected " + session.getExpectedHash() + ", got " + actualHash);
-                rejectDownload(player, sessionId, "hash_mismatch");
-                return;
-            }
-
-            // Deserialize and apply clipboard on entity thread
-            Clipboard clipboard = clipboardSerializer.deserialize(decrypted);
-
-            SchedulerUtil.runOnEntityThread(plugin, player, () -> {
-                if (player.isOnline()) {
-                    clipboardSerializer.setPlayerClipboard(player, clipboard);
-                    clipboardManager.setLocalHash(playerId, actualHash);
-                    logger.info("Clipboard synced for " + player.getName());
-                }
-                clipboardManager.removeDownloadSession(sessionId);
-                clipboardManager.clearActiveSession(playerId);
-                clipboardManager.forceSetState(playerId, SyncState.IDLE);
-
-                // Send ACK to proxy
-                byte[] ackMsg = ProtocolCodec.encodeDownloadAck(sessionId);
-                player.sendPluginMessage(plugin, Constants.CHANNEL, ackMsg);
-            });
+            clipboardSerializer.setPlayerClipboard(player, clipboard);
+            clipboardManager.setLocalHash(playerId, actualHash);
+            clipboardManager.removeDownloadSession(sessionId);
+            clipboardManager.clearActiveSession(playerId);
+            clipboardManager.forceSetState(playerId, SyncState.IDLE);
+            player.sendPluginMessage(plugin, Constants.CHANNEL,
+                    pluginMessageCodec.encode(ProtocolCodec.encodeDownloadAck(sessionId)));
+            logger.info("Clipboard synced for " + player.getName());
         } catch (Exception e) {
-            logger.severe("Failed to complete download for " + player.getName() + ": " + e.getMessage());
-            rejectDownload(player, sessionId, "download_failed");
+            logger.severe("Failed to apply clipboard for " + player.getName() + ": " + e.getMessage());
+            rejectDownload(player, sessionId, "clipboard_apply_failed");
         }
     }
 
     private void timeoutDownload(Player player, String sessionId) {
         TransferSession session = clipboardManager.getDownloadSession(sessionId);
-        if (session == null || !session.isExpired(transferConfig.getSessionTimeoutMs())) {
+        if (session == null) {
+            return;
+        }
+        if (!session.isExpired(transferConfig.getSessionTimeoutMs())) {
+            SchedulerUtil.runDelayedAsync(
+                    plugin,
+                    () -> timeoutDownload(player, sessionId),
+                    transferConfig.getSessionTimeoutMs());
             return;
         }
 
         logger.warning("Clipboard download timed out for " + player.getName()
                 + " (session: " + sessionId + ")");
         rejectDownload(player, sessionId, "download_timeout");
+    }
+
+    private void timeoutDownloadRequest(Player player, String requestId) {
+        UUID playerId = player.getUniqueId();
+        if (clipboardManager.getState(playerId) == SyncState.DOWNLOADING
+                && requestId.equals(clipboardManager.getActiveSessionId(playerId))) {
+            clipboardManager.clearActiveSession(playerId);
+            uploadSessionListener.onDownloadFailed(player, "download_request_timeout");
+        }
     }
 
     private void rejectDownload(Player player, String sessionId, String reason) {
@@ -252,26 +368,42 @@ public class PluginMessageHandler implements PluginMessageListener {
         }
 
         clipboardManager.clearActiveSession(playerId);
-        clipboardManager.forceSetState(playerId, SyncState.IDLE);
-        if (player.isOnline()) {
-            SchedulerUtil.runOnEntityThread(plugin, player, () -> {
-                if (player.isOnline()) {
-                    player.sendPluginMessage(plugin, Constants.CHANNEL,
-                            ProtocolCodec.encodeCancel(sessionId, reason));
-                }
-            });
-        }
+        SchedulerUtil.runOnEntityThread(plugin, player, () -> {
+            if (player.isOnline()) {
+                player.sendPluginMessage(plugin, Constants.CHANNEL,
+                        pluginMessageCodec.encode(ProtocolCodec.encodeCancel(sessionId, reason)));
+            }
+        });
+        uploadSessionListener.onDownloadFailed(player, reason);
     }
 
     private void handleCancel(Player player, ParsedMessage msg) throws IOException {
         DataInputStream in = ProtocolCodec.payloadStream(msg);
         String sessionId = in.readUTF();
         String reason = in.readUTF();
+        if (!ProtocolValidation.isSessionId(sessionId)
+                || !ProtocolValidation.isReason(reason)
+                || !ProtocolValidation.exhausted(in)) {
+            warnInvalidMessage(player, "Rejected malformed CANCEL");
+            return;
+        }
 
         var playerId = player.getUniqueId();
         logger.fine("Transfer cancelled for " + player.getName() + ": " + reason);
 
         uploadSessionListener.onUploadCancelled(player, sessionId, reason);
+
+        if (clipboardManager.getState(playerId) == SyncState.DOWNLOADING
+                && sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
+            clipboardManager.removeDownloadSession(sessionId);
+            clipboardManager.clearActiveSession(playerId);
+            if ("clipboard_not_found".equals(reason)) {
+                clipboardManager.forceSetState(playerId, SyncState.IDLE);
+            } else {
+                uploadSessionListener.onDownloadFailed(player, reason);
+            }
+            return;
+        }
 
         if (clipboardManager.getDownloadSession(sessionId) != null) {
             clipboardManager.removeDownloadSession(sessionId);
@@ -280,5 +412,27 @@ public class PluginMessageHandler implements PluginMessageListener {
                 clipboardManager.forceSetState(playerId, SyncState.IDLE);
             }
         }
+    }
+
+    private void sendOnEntityThread(Player player, byte[] protocolMessage) {
+        SchedulerUtil.runOnEntityThread(plugin, player, () -> {
+            if (player.isOnline()) {
+                player.sendPluginMessage(plugin, Constants.CHANNEL,
+                        pluginMessageCodec.encode(protocolMessage));
+            }
+        });
+    }
+
+    private void warnInvalidMessage(Player player, String message) {
+        long now = System.currentTimeMillis();
+        Long previous = invalidMessageWarnings.put(player.getUniqueId(), now);
+        if (previous == null || now - previous >= 5_000L) {
+            logger.warning(message + " for " + player.getName());
+        }
+    }
+
+    public void removePlayer(UUID playerId) {
+        invalidMessageWarnings.remove(playerId);
+        inboundMessageLimiter.remove(playerId);
     }
 }

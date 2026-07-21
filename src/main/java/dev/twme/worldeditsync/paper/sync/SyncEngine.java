@@ -12,7 +12,7 @@ public interface SyncEngine {
      * Called when a player's clipboard has changed and needs to be uploaded.
      *
      * @param player     the player
-     * @param data       serialized clipboard bytes (already encrypted if encryption is enabled)
+     * @param data       serialized, unencrypted clipboard bytes
      * @param hash       SHA-256 hash of the original (unencrypted) data
      */
     void uploadClipboard(Player player, byte[] data, String hash);

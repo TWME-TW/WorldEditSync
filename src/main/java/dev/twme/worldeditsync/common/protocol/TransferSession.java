@@ -3,6 +3,7 @@ package dev.twme.worldeditsync.common.protocol;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Manages the reception of chunked data transfers.
@@ -15,6 +16,7 @@ public class TransferSession {
     private final int totalBytes;
     private final String expectedHash;
     private final long createdAt;
+    private final AtomicLong lastActivityAt;
     private final ConcurrentHashMap<Integer, byte[]> chunks = new ConcurrentHashMap<>();
     private final AtomicInteger receivedBytes = new AtomicInteger();
     private final AtomicBoolean completionClaimed = new AtomicBoolean();
@@ -37,6 +39,7 @@ public class TransferSession {
         this.totalBytes = totalBytes;
         this.expectedHash = expectedHash;
         this.createdAt = System.currentTimeMillis();
+        this.lastActivityAt = new AtomicLong(createdAt);
     }
 
     public static boolean isValidLayout(int totalBytes, int totalChunks, int chunkSize) {
@@ -85,6 +88,7 @@ public class TransferSession {
             receivedBytes.addAndGet(-data.length);
             throw new IllegalArgumentException("Received data exceeds declared transfer size");
         }
+        lastActivityAt.set(System.currentTimeMillis());
         return true;
     }
 
@@ -105,7 +109,7 @@ public class TransferSession {
     }
 
     public boolean isExpired(long timeoutMs) {
-        return System.currentTimeMillis() - createdAt >= timeoutMs;
+        return System.currentTimeMillis() - lastActivityAt.get() >= timeoutMs;
     }
 
     public double getProgress() {

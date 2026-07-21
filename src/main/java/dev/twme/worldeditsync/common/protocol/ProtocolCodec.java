@@ -3,8 +3,6 @@ package dev.twme.worldeditsync.common.protocol;
 import dev.twme.worldeditsync.common.Constants;
 
 import java.io.*;
-import java.nio.charset.StandardCharsets;
-import java.util.UUID;
 
 /**
  * Codec for encoding/decoding all protocol messages.
@@ -65,10 +63,15 @@ public final class ProtocolCodec {
         }
     }
 
-    public static byte[] encodeSyncHash(String hash) {
+    public static byte[] encodeSyncRequest(String requestId) {
+        return encodeSessionMessage(MessageType.SYNC_REQUEST, requestId);
+    }
+
+    public static byte[] encodeSyncHash(String requestId, String hash) {
         try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
              DataOutputStream out = new DataOutputStream(bos)) {
             writeHeader(out, MessageType.SYNC_HASH);
+            out.writeUTF(requestId);
             out.writeUTF(hash);
             return bos.toByteArray();
         } catch (IOException e) {
@@ -76,30 +79,34 @@ public final class ProtocolCodec {
         }
     }
 
-    public static byte[] encodeSyncNoData() {
+    public static byte[] encodeSyncNoData(String requestId) {
         try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
              DataOutputStream out = new DataOutputStream(bos)) {
             writeHeader(out, MessageType.SYNC_NO_DATA);
+            out.writeUTF(requestId);
             return bos.toByteArray();
         } catch (IOException e) {
             throw new RuntimeException("Failed to encode SYNC_NO_DATA", e);
         }
     }
 
-    public static byte[] encodeDownloadRequest() {
+    public static byte[] encodeDownloadRequest(String requestId) {
         try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
              DataOutputStream out = new DataOutputStream(bos)) {
             writeHeader(out, MessageType.DOWNLOAD_REQUEST);
+            out.writeUTF(requestId);
             return bos.toByteArray();
         } catch (IOException e) {
             throw new RuntimeException("Failed to encode DOWNLOAD_REQUEST", e);
         }
     }
 
-    public static byte[] encodeDownloadBegin(String sessionId, int totalBytes, int totalChunks, String hash) {
+    public static byte[] encodeDownloadBegin(String requestId, String sessionId,
+                                             int totalBytes, int totalChunks, String hash) {
         try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
              DataOutputStream out = new DataOutputStream(bos)) {
             writeHeader(out, MessageType.DOWNLOAD_BEGIN);
+            out.writeUTF(requestId);
             out.writeUTF(sessionId);
             out.writeInt(totalBytes);
             out.writeInt(totalChunks);
@@ -140,7 +147,11 @@ public final class ProtocolCodec {
              DataOutputStream out = new DataOutputStream(bos)) {
             writeHeader(out, MessageType.CANCEL);
             out.writeUTF(sessionId);
-            out.writeUTF(reason);
+            String safeReason = reason == null ? "unspecified" : reason;
+            if (safeReason.length() > Constants.MAX_CANCEL_REASON_LENGTH) {
+                safeReason = safeReason.substring(0, Constants.MAX_CANCEL_REASON_LENGTH);
+            }
+            out.writeUTF(safeReason);
             return bos.toByteArray();
         } catch (IOException e) {
             throw new RuntimeException("Failed to encode CANCEL", e);
@@ -154,7 +165,7 @@ public final class ProtocolCodec {
      * Returns null if the message is invalid or uses an incompatible protocol version.
      */
     public static ParsedMessage decode(byte[] raw) {
-        if (raw == null || raw.length < 2) {
+        if (raw == null || raw.length < 2 || raw.length > Constants.MAX_PLUGIN_MESSAGE_SIZE) {
             return null;
         }
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(raw))) {
