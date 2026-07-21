@@ -2,6 +2,7 @@ package dev.twme.worldeditsync.paper.config;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -26,6 +27,24 @@ public class PaperConfigTest {
 
         assertTrue(config.isSupportedMode());
         assertTrue(config.isS3Mode());
+    }
+
+    @Test
+    public void acceptsDatabaseModeAndLoadsBackendType() {
+        JavaPlugin plugin = mock(JavaPlugin.class);
+        FileConfiguration fileConfig = mock(FileConfiguration.class);
+        when(plugin.getConfig()).thenReturn(fileConfig);
+        when(fileConfig.getString("sync-mode", "proxy")).thenReturn(" database ");
+        when(fileConfig.getString("token", "")).thenReturn("");
+        when(fileConfig.getString("database.type", "sqlite")).thenReturn("postgres");
+
+        PaperConfig config = new PaperConfig();
+        config.load(plugin);
+
+        assertTrue(config.isSupportedMode());
+        assertTrue(config.isDatabaseMode());
+        assertTrue(config.getDatabaseSettings().isSupported());
+        assertEquals(StorageType.POSTGRESQL, config.getDatabaseSettings().type());
     }
 
     private PaperConfig loadWithMode(String mode) {

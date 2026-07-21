@@ -1,96 +1,221 @@
 # WorldEditSync
 
-WorldEditSync is a Minecraft plugin that synchronizes WorldEdit (FastAsyncWorldEdit) clipboards across multiple servers. It supports two sync modes: **Proxy mode** (via BungeeCord/Velocity Plugin Messages) and **S3 mode** (via any S3-compatible storage such as MinIO or AWS S3).
+WorldEditSync lets players copy a WorldEdit selection on one Paper server and paste it on another. It works with both WorldEdit and FastAsyncWorldEdit (FAWE), and synchronization happens automatically without extra player commands.
 
-## Features
+## What Players Get
 
-- Synchronize WorldEdit and FastAsyncWorldEdit clipboards across multiple servers.
-- **Proxy mode**: Sync via BungeeCord or Velocity proxy using Plugin Messages.
-- **S3 mode**: Sync via S3-compatible storage (e.g. MinIO) — no proxy plugin required.
-- Automatically upload and download clipboards when players switch servers or modify their clipboard.
-- Efficient chunk-based data transfer to handle large clipboards.
-- AES-256-GCM authenticated encryption for proxy control messages and clipboard data.
-- SHA-256 hash comparison to avoid unnecessary transfers.
-- Permissions support to control which players can use the synchronization feature.
+- Copy once with `//copy` or `//cut`, then paste on another server with `//paste`.
+- Keep the clipboard origin and offset when moving between servers.
+- Use the same workflow with WorldEdit or FAWE.
+- Control access with the `worldeditsync.sync` permission, which is granted to everyone by default.
 
-## Requirements
+## Choose a Setup
 
-- Minecraft server running Paper.
-- WorldEdit or FastAsyncWorldEdit plugin installed on the Paper server.
-- **Proxy mode only**: BungeeCord or Velocity proxy server with WorldEditSync installed.
-- **S3 mode only**: An accessible S3-compatible storage service (e.g. MinIO).
+| Setup | Choose this when | Install WorldEditSync on | Extra service |
+| --- | --- | --- | --- |
+| **Proxy** | Your servers already use BungeeCord or Velocity. This is the simplest option for most proxy networks. | Every Paper server and the proxy | None |
+| **Database** | You want the Paper servers to share clipboards without installing the plugin on a proxy. | Every Paper server | Redis, Valkey, KeyDB, MySQL, MariaDB, PostgreSQL, or a shared local SQLite file |
+| **S3** | You already run MinIO, AWS S3, or another S3-compatible service. | Every Paper server | An S3-compatible bucket |
 
-## Installation
+Only choose one setup. Every participating Paper server must use the same setup and settings.
 
-1. **Download the Plugin:**
-   - Download the latest version of the WorldEditSync plugin from the [releases page](https://github.com/TWME-TW/WorldEditSync/releases).
+## Before You Start
 
-2. **Install on Paper Server:**
-   - Place the `WorldEditSync.jar` file in the `plugins` directory of your Paper server.
-   - Ensure that the WorldEdit or FastAsyncWorldEdit plugin is also installed.
+- Download the latest `WorldEditSync.jar` from the [releases page](https://github.com/TWME-TW/WorldEditSync/releases).
+- Install WorldEdit or FAWE on every Paper server.
+- Use the same WorldEditSync version on every participating server and proxy.
+- Make sure a player has the same UUID on every Paper server. Configure BungeeCord IP forwarding or Velocity player forwarding correctly before testing.
+- Use Java 21. Testing covers Paper 1.21.11 with WorldEdit 7.4 and with FAWE 2.15.
 
-3. **(Proxy mode only) Install on BungeeCord or Velocity Proxy:**
-   - Place the `WorldEditSync.jar` file in the `plugins` directory of your BungeeCord or Velocity proxy server.
-   - Use the same WorldEditSync build on every Paper server and proxy.
+## Install on Paper
 
-4. **Configuration:**
-   - Edit `plugins/WorldEditSync/config.yml` on your Paper server.
-   - Set `sync-mode` to `"proxy"` (default) or `"s3"`.
-   - If using S3 mode, fill in the `s3` section with your storage endpoint and credentials.
-   - In Proxy mode, set the same non-empty `token` on every Paper server and the Proxy. It is required to prevent players from reading or forging plugin messages.
-   - In S3 mode, `token` is optional but strongly recommended because an empty token stores plaintext clipboards.
+1. Stop every Paper server.
+2. Put `WorldEditSync.jar` in each server's `plugins` directory.
+3. Start each server once so WorldEditSync can create `plugins/WorldEditSync/config.yml`.
+4. Stop the servers again before editing the configuration.
+5. Follow one of the setup guides below.
+6. Restart every participating server after the configuration matches.
 
-### S3 Mode Configuration Example
+The first Paper startup may take longer while required libraries are downloaded. With the default empty token, Proxy mode will remain disabled until configuration is complete; this is expected.
+
+## Shared Token
+
+Set a long, random `token` and use the exact same value on every participating Paper server. Proxy mode must also use that value on BungeeCord or Velocity.
+
+You can generate a token on Linux or macOS with:
+
+```sh
+openssl rand -hex 32
+```
+
+Do not publish the token or commit it to a public repository. Although Database and S3 modes allow an empty token, setting one prevents stored clipboards from being readable by anyone with storage access.
+
+The examples below show only the settings that normally need to change. Leave other generated settings at their defaults unless you have a specific reason to adjust them.
+
+## Proxy Setup
+
+Use this setup when players move between Paper servers through BungeeCord or Velocity.
+
+1. Put the same `WorldEditSync.jar` in the proxy's `plugins` directory.
+2. Start the proxy once to create its configuration, then stop it.
+3. On every Paper server, set:
+
+```yaml
+sync-mode: "proxy"
+token: "replace-with-the-same-random-token"
+```
+
+4. Set the same token in the proxy configuration:
+
+   - BungeeCord: `plugins/WorldEditSync/config.yml`
+   - Velocity: `plugins/worldeditsync/config.yml`
+
+```yaml
+token: "replace-with-the-same-random-token"
+```
+
+5. Start the proxy and all Paper servers.
+
+Leave the `transfer` settings at their defaults. If you change them later, copy the same values to every Paper server and the proxy.
+
+## Database Setup
+
+Database mode only needs WorldEditSync on the Paper servers. Do not install it on the proxy for this mode.
+
+First create the database, account, or Redis instance. Every Paper server must be able to reach it using the same settings. For MySQL, MariaDB, and PostgreSQL, let the account create its table and read, insert, update, and delete rows in the selected database.
+
+### Redis, Valkey, or KeyDB
+
+Redis is the recommended database option when you are starting from scratch. On every Paper server, set:
+
+```yaml
+sync-mode: "database"
+token: "replace-with-the-same-random-token"
+
+database:
+  type: "redis"
+  url: "redis://:password@redis-host:6379/0"
+```
+
+Remove `:password@` when the Redis server does not use a password. Valkey and KeyDB use the same configuration.
+
+### MySQL, MariaDB, or PostgreSQL
+
+Create an empty database and an account for WorldEditSync. The plugin creates its table automatically.
+
+Example for MariaDB:
+
+```yaml
+sync-mode: "database"
+token: "replace-with-the-same-random-token"
+
+database:
+  type: "mariadb"
+  url: ""
+  host: "database-host"
+  port: 3306
+  name: "worldeditsync"
+  username: "worldeditsync"
+  password: "replace-with-database-password"
+```
+
+For another server type, change these values:
+
+| Database | `type` | Usual port |
+| --- | --- | --- |
+| MySQL | `mysql` | `3306` |
+| MariaDB | `mariadb` | `3306` |
+| PostgreSQL | `postgresql` | `5432` |
+
+In the generated `database` section, set `ttl-minutes: 0` if stored clipboards should never expire.
+
+### SQLite on One Machine
+
+Use SQLite only when all Paper processes run on the same machine. They must point to one shared local file; the default file inside each individual server directory will not synchronize separate servers.
+
+```yaml
+sync-mode: "database"
+token: "replace-with-the-same-random-token"
+
+database:
+  type: "sqlite"
+  url: "jdbc:sqlite:/srv/minecraft/shared/worldeditsync.db"
+```
+
+Do not place the SQLite file on NFS or another network filesystem. Use Redis, MySQL/MariaDB, or PostgreSQL when Paper servers run on different machines.
+
+## S3 Setup
+
+Use this setup with MinIO, AWS S3, or another compatible service. The credentials need access to read and write objects in the bucket. If the bucket does not exist, the credentials must also allow WorldEditSync to create it.
+
+On every Paper server, set:
 
 ```yaml
 sync-mode: "s3"
-token: "your-secret-token"
+token: "replace-with-the-same-random-token"
 
 s3:
-  endpoint: "http://localhost:9000"
-  access-key: "minioadmin"
-  secret-key: "minioadmin"
+  endpoint: "https://s3.example.com"
+  access-key: "replace-with-access-key"
+  secret-key: "replace-with-secret-key"
   bucket: "worldeditsync"
   region: ""
-  check-interval: 40
 ```
 
-## Usage
+Use an endpoint that every Paper server can reach. Set `region` when your provider requires one; it can remain empty for most MinIO installations.
 
-- **Permissions:**
-  - The plugin uses the `worldeditsync.sync` permission to control which players can use the synchronization feature. By default, this permission is granted to all players.
+## Check the Installation
 
-- **Commands:**
-  - There are no commands required. Clipboard synchronization happens automatically when players copy or cut using WorldEdit or FastAsyncWorldEdit.
+1. Start every server involved in synchronization.
+2. Check each console for `WorldEditSync enabled` and a message that its sync engine started.
+3. Join the first Paper server and select a small, asymmetric region.
+4. Run `//copy`, then wait a few seconds for the clipboard to upload.
+5. Move to the second Paper server with the same player account.
+6. Wait a few seconds, move to a safe test location, and run `//paste`.
+7. Confirm that the blocks and clipboard offset match the original selection.
 
-## Development
+There are no WorldEditSync commands. Once installed, players continue using normal WorldEdit or FAWE commands.
 
-### Building from Source
+## Permissions
 
-1. **Clone the Repository:**
-   ```sh
-   git clone https://github.com/TWME-TW/WorldEditSync.git
-   cd WorldEditSync
-   ```
+`worldeditsync.sync` controls who can synchronize clipboards. It is granted to all players by default. Deny this permission with your permissions plugin when only selected builders should use cross-server clipboards.
 
-2. **Build the Plugin:**
-   ```sh
-   mvn clean package
-   ```
+## Troubleshooting
 
-3. **Find the JAR:**
-   - The built JAR file will be located in the `target` directory.
+| Problem | What to check |
+| --- | --- |
+| WorldEditSync disables itself in Proxy mode | Set a non-empty token on every Paper server and the proxy, then restart them. |
+| A clipboard never appears on the other server | Confirm both servers use the same mode, token, WorldEditSync version, and player UUID. Wait a few seconds after `//copy`. |
+| The console reports decryption or token errors | Copy the exact same token to every participating server. Old stored clipboards created with another token cannot be opened. |
+| Database mode keeps retrying | Check the host, port, credentials, firewall, and database permissions from every Paper machine. |
+| S3 mode keeps retrying | Check the endpoint, bucket, credentials, region, and bucket permissions. |
+| Velocity or BungeeCord players get different UUIDs | Fix proxy player forwarding before using WorldEditSync. Existing clipboards are stored under the UUID seen by Paper. |
+| Paper cannot download libraries on first startup | Allow the server to reach Maven Central, then restart Paper. |
 
-### Contributing
+When asking for help, include the WorldEditSync version, Paper version, WorldEdit or FAWE version, selected sync mode, and relevant console errors. Remove tokens and passwords before sharing configuration or logs.
 
-Contributions are welcome! Please open an issue or submit a pull request on GitHub.
+## Updating
 
-## License
+1. Stop the proxy and Paper servers.
+2. Back up the existing WorldEditSync configuration.
+3. Replace the JAR everywhere with the same new version.
+4. Review new options in the example configuration.
+5. Start the proxy first when using Proxy mode, then start the Paper servers.
 
-This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
+## For Contributors
 
-## Contact
+Build the plugin with Java 21 and Maven:
 
-For support or inquiries, please open an issue on GitHub or contact the authors.
+```sh
+git clone https://github.com/TWME-TW/WorldEditSync.git
+cd WorldEditSync
+mvn clean package
+```
+
+The built JAR is written to `target/WorldEditSync-<version>.jar`.
+
+## Support and License
+
+Open an [issue](https://github.com/TWME-TW/WorldEditSync/issues) for support or bug reports. WorldEditSync is licensed under the [Apache License 2.0](LICENSE).
 
 ###### Tags: FastAsyncWorldEdit WorldEdit Clipboard Plugin Copy WorldEditGlobalizer

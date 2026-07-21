@@ -1,15 +1,17 @@
 # WorldEditSync Configuration
 
-# Sync mode: "proxy" or "s3"
+# Sync mode: "proxy", "s3", or "database"
 # - proxy: Sync via BungeeCord/Velocity proxy using Plugin Messages (requires proxy plugin).
 # - s3: Sync via S3-compatible storage (e.g. MinIO). No proxy plugin needed.
+# - database: Sync via Redis, MySQL, MariaDB, PostgreSQL, or SQLite.
 sync-mode: "proxy"
 
 # Token for authenticated encryption (AES-256-GCM).
 # - proxy mode: REQUIRED. Protects Plugin Messages between Paper and Proxy.
-# - s3 mode: encrypts clipboard data before uploading to S3.
-# This MUST be the same on all Paper servers and the Proxy (BungeeCord/Velocity).
-# S3 mode may leave this empty, but the stored clipboard will be plaintext.
+# - s3/database mode: encrypts clipboard data before storing it.
+# This MUST be the same on every participating Paper server. Proxy mode must also
+# use the same value on the Proxy (BungeeCord/Velocity).
+# S3/database mode may leave this empty, but stored clipboards will be plaintext.
 token: ""
 
 # S3 storage settings (only used when sync-mode is "s3")
@@ -26,6 +28,36 @@ s3:
   region: ""
   # How often to check S3 for clipboard updates (in ticks, 20 ticks = 1 second)
   check-interval: 40
+
+# Shared database settings (only used when sync-mode is "database")
+database:
+  # redis also supports protocol-compatible Valkey and KeyDB servers.
+  # SQL options: mysql, mariadb, postgresql, sqlite
+  # SQLite is suitable for multiple Paper processes only when they run on the same
+  # host and share this local file. Use a network database across separate hosts.
+  type: "sqlite"
+  # Optional complete connection URL. Leave empty to build one from host/port/name.
+  # Examples:
+  #   redis://:password@127.0.0.1:6379/0
+  #   jdbc:mysql://127.0.0.1:3306/worldeditsync
+  #   jdbc:mariadb://127.0.0.1:3306/worldeditsync
+  #   jdbc:postgresql://127.0.0.1:5432/worldeditsync
+  # SQLite defaults to plugins/WorldEditSync/clipboards.db when this is empty.
+  url: ""
+  host: "127.0.0.1"
+  # 0 selects the backend default (Redis 6379, MySQL/MariaDB 3306, PostgreSQL 5432).
+  port: 0
+  name: "worldeditsync"
+  username: ""
+  password: ""
+  table: "worldeditsync_clipboards"
+  key-prefix: "worldeditsync"
+  pool-size: 4
+  connection-timeout-ms: 10000
+  check-interval: 40
+  # Expire database clipboards after this many minutes. SQL rows are removed when
+  # next inspected; Redis applies a native key TTL. 0 keeps them forever.
+  ttl-minutes: 60
 
 # ============================================================
 # Advanced transfer settings

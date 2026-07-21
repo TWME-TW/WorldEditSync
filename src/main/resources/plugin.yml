@@ -9,6 +9,12 @@ description: Sync WorldEdit clipboard across servers
 libraries:
   - io.minio:minio:9.0.0
   - com.squareup.okhttp3:okhttp-jvm:5.2.1
+  - com.zaxxer:HikariCP:7.1.0
+  - redis.clients:jedis:7.5.3
+  - com.mysql:mysql-connector-j:9.7.0
+  - org.mariadb.jdbc:mariadb-java-client:3.5.9
+  - org.postgresql:postgresql:42.7.13
+  - org.xerial:sqlite-jdbc:3.53.2.0
 permissions:
   worldeditsync.sync:
     description: Allows clipboard synchronization across servers

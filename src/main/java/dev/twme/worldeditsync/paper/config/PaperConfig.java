@@ -17,6 +17,11 @@ public class PaperConfig {
     private String s3Region = "";
     private int s3CheckIntervalTicks = 40;
 
+    // Database settings
+    private DatabaseSettings databaseSettings = new DatabaseSettings(
+            StorageType.SQLITE, "", "127.0.0.1", 0, "worldeditsync", "", "",
+            "worldeditsync_clipboards", "worldeditsync", 4, 10_000L, 40, 60L);
+
     private final TransferConfig transferConfig = new TransferConfig();
 
     public void load(JavaPlugin plugin) {
@@ -36,6 +41,22 @@ public class PaperConfig {
         s3Region = config.getString("s3.region", s3Region);
         s3CheckIntervalTicks = Math.max(1, config.getInt("s3.check-interval", s3CheckIntervalTicks));
 
+        StorageType databaseType = StorageType.parse(config.getString("database.type", "sqlite"));
+        databaseSettings = new DatabaseSettings(
+                databaseType,
+                value(config.getString("database.url", "")),
+                value(config.getString("database.host", "127.0.0.1")),
+                config.getInt("database.port", 0),
+                value(config.getString("database.name", "worldeditsync")),
+                value(config.getString("database.username", "")),
+                value(config.getString("database.password", "")),
+                value(config.getString("database.table", "worldeditsync_clipboards")),
+                value(config.getString("database.key-prefix", "worldeditsync")),
+                clamp(config.getInt("database.pool-size", 4), 1, 16),
+                Math.max(1_000L, config.getLong("database.connection-timeout-ms", 10_000L)),
+                Math.max(1, config.getInt("database.check-interval", 40)),
+                Math.max(0L, config.getLong("database.ttl-minutes", 60L)));
+
         transferConfig.setChunkSize(config.getInt("transfer.chunk-size", transferConfig.getChunkSize()));
         transferConfig.setMaxClipboardSize(config.getInt("transfer.max-clipboard-size", transferConfig.getMaxClipboardSize()));
         transferConfig.setSessionTimeoutMs(config.getLong("transfer.session-timeout-ms", transferConfig.getSessionTimeoutMs()));
@@ -53,8 +74,12 @@ public class PaperConfig {
         return "s3".equalsIgnoreCase(syncMode);
     }
 
+    public boolean isDatabaseMode() {
+        return "database".equalsIgnoreCase(syncMode);
+    }
+
     public boolean isSupportedMode() {
-        return isProxyMode() || isS3Mode();
+        return isProxyMode() || isS3Mode() || isDatabaseMode();
     }
 
     public String getSyncMode() {
@@ -89,7 +114,19 @@ public class PaperConfig {
         return s3CheckIntervalTicks;
     }
 
+    public DatabaseSettings getDatabaseSettings() {
+        return databaseSettings;
+    }
+
     public TransferConfig getTransferConfig() {
         return transferConfig;
+    }
+
+    private String value(String configured) {
+        return configured == null ? "" : configured;
+    }
+
+    private int clamp(int value, int minimum, int maximum) {
+        return Math.max(minimum, Math.min(maximum, value));
     }
 }
