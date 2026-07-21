@@ -41,16 +41,17 @@ public class MessageHandlerTest {
 
         ClipboardStore store = new ClipboardStore();
         store.storeClipboard(playerId, new byte[] {1, 2, 3}, hash);
-        PluginMessageCodec wireCodec = new PluginMessageCodec("test-token");
+        PluginMessageCodec paperCodec = PluginMessageCodec.forPaper("test-token");
+        PluginMessageCodec proxyCodec = PluginMessageCodec.forProxy("test-token");
         MessageHandler handler = new MessageHandler(
-                plugin, store, 30_000, 1024, 5, 30_000, wireCodec);
+                plugin, store, 30_000, 1024, 5, 30_000, proxyCodec);
 
         handler.handleMessage(player,
-                wireCodec.encode(ProtocolCodec.encodeSyncRequest(requestId)));
+                paperCodec.encode(ProtocolCodec.encodeSyncRequest(requestId)));
 
         ArgumentCaptor<byte[]> response = ArgumentCaptor.forClass(byte[].class);
         verify(backend).sendData(eq(Constants.CHANNEL), response.capture());
-        ProtocolCodec.ParsedMessage parsed = wireCodec.decode(response.getValue());
+        ProtocolCodec.ParsedMessage parsed = paperCodec.decode(response.getValue());
         assertNotNull(parsed);
         assertEquals(MessageType.SYNC_HASH, parsed.type());
         try (DataInputStream input = ProtocolCodec.payloadStream(parsed)) {

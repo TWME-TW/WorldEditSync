@@ -78,6 +78,7 @@ public class PluginMessageHandler implements PluginMessageListener {
 
         ParsedMessage msg = pluginMessageCodec.decode(data);
         if (msg == null) {
+            inboundMessageLimiter.recordInvalidMessage(player.getUniqueId());
             warnInvalidMessage(player, "Received invalid or unauthenticated protocol message");
             return;
         }
@@ -213,8 +214,13 @@ public class PluginMessageHandler implements PluginMessageListener {
             return;
         }
 
-        TransferSession session = new TransferSession(sessionId, totalChunks, totalBytes, hash);
-        clipboardManager.addDownloadSession(sessionId, session);
+        TransferSession session = new TransferSession(
+                sessionId, totalChunks, totalBytes, transferConfig.getChunkSize(), hash);
+        if (!clipboardManager.addDownloadSession(sessionId, session)) {
+            warnInvalidMessage(player, "Rejected download because transfer memory is full");
+            sendOnEntityThread(player, ProtocolCodec.encodeCancel(sessionId, "server_busy"));
+            return;
+        }
         clipboardManager.setActiveSessionId(playerId, sessionId);
         ProgressHandle progress = actionBarProgress.begin(player, Operation.DOWNLOAD);
         ProgressHandle previous = downloadProgress.put(sessionId, progress);
@@ -222,10 +228,18 @@ public class PluginMessageHandler implements PluginMessageListener {
             previous.cancel();
         }
 
-        SchedulerUtil.runDelayedAsync(
-                plugin,
-                () -> timeoutDownload(player, sessionId),
-                transferConfig.getSessionTimeoutMs());
+        try {
+            if (SchedulerUtil.runDelayedAsync(
+                    plugin,
+                    () -> timeoutDownload(player, sessionId),
+                    transferConfig.getSessionTimeoutMs()) == null) {
+                rejectDownload(player, sessionId, "scheduler_unavailable");
+                return;
+            }
+        } catch (RuntimeException e) {
+            rejectDownload(player, sessionId, "scheduler_unavailable");
+            return;
+        }
 
         logger.fine("Download begin for " + player.getName() + ": " + totalBytes + " bytes, " + totalChunks + " chunks");
     }
@@ -276,7 +290,7 @@ public class PluginMessageHandler implements PluginMessageListener {
         boolean added;
         try {
             added = session.addChunk(chunkIndex, chunkData);
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException | IllegalStateException e) {
             logger.warning("Rejected invalid download chunk for " + player.getName()
                     + ": " + e.getMessage());
             rejectDownload(player, sessionId, "invalid_chunk");
@@ -298,11 +312,17 @@ public class PluginMessageHandler implements PluginMessageListener {
     }
 
     private void completeDownload(Player player, TransferSession session) {
-        var playerId = player.getUniqueId();
         String sessionId = session.getSessionId();
         String playerName = player.getName();
 
-        SchedulerUtil.runAsync(plugin, () -> {
+        if (!clipboardManager.detachDownloadSession(sessionId, session)) {
+            cancelDownloadProgress(sessionId);
+            return;
+        }
+
+        Object completionTask;
+        try {
+            completionTask = SchedulerUtil.runAsync(plugin, () -> {
             try {
                 byte[] assembled = session.assemble();
                 byte[] decrypted = cipher.decrypt(assembled);
@@ -315,14 +335,27 @@ public class PluginMessageHandler implements PluginMessageListener {
                     return;
                 }
 
-                Clipboard clipboard = clipboardSerializer.deserialize(decrypted);
+                Clipboard clipboard = clipboardSerializer.deserialize(
+                        decrypted, transferConfig.getMaxClipboardSize(),
+                        transferConfig.getMaxClipboardBlocks());
                 SchedulerUtil.runOnEntityThread(plugin, player,
                         () -> applyDownloadedClipboard(player, sessionId, clipboard, actualHash));
             } catch (Exception e) {
                 logger.severe("Failed to complete download for " + playerName + ": " + e.getMessage());
                 rejectDownload(player, sessionId, "download_failed");
+            } finally {
+                clipboardManager.releaseDetachedDownloadSession(session);
             }
-        });
+            });
+        } catch (RuntimeException e) {
+            clipboardManager.releaseDetachedDownloadSession(session);
+            rejectDownload(player, sessionId, "scheduler_unavailable");
+            return;
+        }
+        if (completionTask == null) {
+            clipboardManager.releaseDetachedDownloadSession(session);
+            rejectDownload(player, sessionId, "scheduler_unavailable");
+        }
     }
 
     private void applyDownloadedClipboard(Player player, String sessionId,
@@ -344,6 +377,7 @@ public class PluginMessageHandler implements PluginMessageListener {
         try {
             clipboardSerializer.setPlayerClipboard(player, clipboard);
             clipboardManager.setLocalHash(playerId, actualHash);
+            clipboardManager.markSerializedClipboard(playerId, clipboard, actualHash);
             clipboardManager.removeDownloadSession(sessionId);
             clipboardManager.clearActiveSession(playerId);
             clipboardManager.forceSetState(playerId, SyncState.IDLE);
@@ -467,6 +501,16 @@ public class PluginMessageHandler implements PluginMessageListener {
             }
         });
         actionBarProgress.removePlayer(playerId);
+    }
+
+    public void shutdown() {
+        invalidMessageWarnings.clear();
+        inboundMessageLimiter.clear();
+        downloadProgress.forEach((sessionId, progress) -> {
+            if (downloadProgress.remove(sessionId, progress)) {
+                progress.cancel();
+            }
+        });
     }
 
     private void completeDownloadProgress(String sessionId) {

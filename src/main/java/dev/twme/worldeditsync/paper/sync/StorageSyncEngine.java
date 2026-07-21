@@ -1,6 +1,8 @@
 package dev.twme.worldeditsync.paper.sync;
 
 import java.util.UUID;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -43,6 +45,7 @@ public class StorageSyncEngine implements SyncEngine {
     private final AtomicBoolean running = new AtomicBoolean();
     private final AtomicBoolean ready = new AtomicBoolean();
     private final AtomicBoolean scanPending = new AtomicBoolean();
+    private final Set<UUID> inspectionsPending = ConcurrentHashMap.newKeySet();
     private final AtomicLong lastErrorLog = new AtomicLong();
 
     private boolean initializationInProgress;
@@ -80,6 +83,11 @@ public class StorageSyncEngine implements SyncEngine {
             initializationInProgress = true;
             try {
                 initializationTask = SchedulerUtil.runAsync(plugin, this::initializeConnection);
+                if (initializationTask == null) {
+                    initializationInProgress = false;
+                    logger.warning("Could not schedule " + storage.description()
+                            + " initialization.");
+                }
             } catch (RuntimeException e) {
                 initializationInProgress = false;
                 throw e;
@@ -109,7 +117,7 @@ public class StorageSyncEngine implements SyncEngine {
             } else {
                 initializationTask = SchedulerUtil.runDelayedAsync(
                         plugin, this::initializeAsync, INITIALIZATION_RETRY_MS);
-                retrying = true;
+                retrying = initializationTask != null;
             }
         }
         if (closeStorage) {
@@ -139,6 +147,9 @@ public class StorageSyncEngine implements SyncEngine {
                 this::checkAllPlayers,
                 transferConfig.getWatcherInitialDelayTicks(),
                 checkIntervalTicks);
+        if (watcherTask == null) {
+            logger.warning("Could not schedule " + storage.description() + " clipboard watcher.");
+        }
     }
 
     @Override
@@ -155,6 +166,7 @@ public class StorageSyncEngine implements SyncEngine {
         }
         SchedulerUtil.cancelTask(pendingInitialization);
         SchedulerUtil.cancelTask(activeWatcher);
+        inspectionsPending.clear();
         try {
             storage.close();
         } catch (Exception e) {
@@ -186,9 +198,12 @@ public class StorageSyncEngine implements SyncEngine {
         String playerName = player.getName();
         ProgressHandle progress = actionBarProgress.begin(player, Operation.UPLOAD);
         try {
-            SchedulerUtil.runAsync(plugin,
+            if (SchedulerUtil.runAsync(plugin,
                     () -> uploadSerializedClipboard(
-                            playerId, playerToken, playerName, data, hash, progress));
+                            playerId, playerToken, playerName, data, hash, progress)) == null) {
+                progress.fail();
+                finishWorker(playerId, playerToken);
+            }
         } catch (RuntimeException e) {
             progress.fail();
             finishWorker(playerId, playerToken);
@@ -203,6 +218,7 @@ public class StorageSyncEngine implements SyncEngine {
 
     @Override
     public void onPlayerQuit(Player player) {
+        inspectionsPending.remove(player.getUniqueId());
         actionBarProgress.removePlayer(player.getUniqueId());
         clipboardManager.removePlayer(player.getUniqueId());
     }
@@ -211,15 +227,24 @@ public class StorageSyncEngine implements SyncEngine {
         if (!ready.get() || !scanPending.compareAndSet(false, true)) {
             return;
         }
-        SchedulerUtil.runOnGlobalThread(plugin, () -> {
-            try {
-                for (Player player : plugin.getServer().getOnlinePlayers()) {
-                    SchedulerUtil.runOnEntityThread(plugin, player, () -> inspectPlayer(player));
+        try {
+            if (SchedulerUtil.runOnGlobalThread(plugin, () -> {
+                try {
+                    if (!running.get() || !ready.get()) {
+                        return;
+                    }
+                    for (Player player : plugin.getServer().getOnlinePlayers()) {
+                        queueInspection(player);
+                    }
+                } finally {
+                    scanPending.set(false);
                 }
-            } finally {
+            }) == null) {
                 scanPending.set(false);
             }
-        });
+        } catch (RuntimeException e) {
+            scanPending.set(false);
+        }
     }
 
     private void onStorageUpdate(String playerId) {
@@ -232,17 +257,60 @@ public class StorageSyncEngine implements SyncEngine {
         } catch (IllegalArgumentException ignored) {
             return;
         }
-        SchedulerUtil.runOnGlobalThread(plugin, () -> {
-            Player player = plugin.getServer().getPlayer(playerUuid);
-            if (player != null && player.isOnline()) {
-                SchedulerUtil.runOnEntityThread(plugin, player, () -> inspectPlayer(player));
+        if (!inspectionsPending.add(playerUuid)) {
+            return;
+        }
+        try {
+            if (SchedulerUtil.runOnGlobalThread(plugin, () -> {
+                if (!running.get() || !ready.get()) {
+                    inspectionsPending.remove(playerUuid);
+                    return;
+                }
+                Player player = plugin.getServer().getPlayer(playerUuid);
+                if (player == null || !player.isOnline()) {
+                    inspectionsPending.remove(playerUuid);
+                    return;
+                }
+                scheduleReservedInspection(player);
+            }) == null) {
+                inspectionsPending.remove(playerUuid);
             }
-        });
+        } catch (RuntimeException e) {
+            inspectionsPending.remove(playerUuid);
+        }
+    }
+
+    private void queueInspection(Player player) {
+        if (!running.get() || !ready.get()) {
+            return;
+        }
+        UUID playerId = player.getUniqueId();
+        if (inspectionsPending.add(playerId)) {
+            scheduleReservedInspection(player);
+        }
+    }
+
+    private void scheduleReservedInspection(Player player) {
+        UUID playerId = player.getUniqueId();
+        try {
+            if (SchedulerUtil.runOnEntityThread(plugin, player, () -> {
+                try {
+                    inspectPlayer(player);
+                } finally {
+                    inspectionsPending.remove(playerId);
+                }
+            }) == null) {
+                inspectionsPending.remove(playerId);
+            }
+        } catch (RuntimeException e) {
+            inspectionsPending.remove(playerId);
+        }
     }
 
     private void inspectPlayer(Player player) {
         UUID playerId = player.getUniqueId();
-        if (!player.isOnline() || !player.hasPermission("worldeditsync.sync")) {
+        if (!running.get() || !ready.get()
+                || !player.isOnline() || !player.hasPermission("worldeditsync.sync")) {
             return;
         }
         if (!clipboardManager.isTracked(playerId)) {
@@ -284,9 +352,12 @@ public class StorageSyncEngine implements SyncEngine {
         }
 
         try {
-            SchedulerUtil.runAsync(plugin,
+            if (SchedulerUtil.runAsync(plugin,
                     () -> synchronizePlayer(
-                            player, playerId, playerToken, playerName, expectedClipboard));
+                            player, playerId, playerToken, playerName, expectedClipboard)) == null) {
+                workerSlots.release();
+                resetCheck(playerId, playerToken);
+            }
         } catch (RuntimeException e) {
             workerSlots.release();
             resetCheck(playerId, playerToken);
@@ -323,10 +394,16 @@ public class StorageSyncEngine implements SyncEngine {
             if (clipboard == null) {
                 return;
             }
+            if (remote.exists() && remote.hash().equalsIgnoreCase(localHash)
+                    && clipboardManager.isSerializedClipboard(playerId, clipboard)) {
+                return;
+            }
 
             byte[] serialized;
             try {
-                serialized = clipboardSerializer.serialize(clipboard);
+                serialized = clipboardSerializer.serialize(
+                        clipboard, transferConfig.getMaxClipboardSize(),
+                        transferConfig.getMaxClipboardBlocks());
             } catch (Exception e) {
                 callbackScheduled = scheduleEntityContinuation(
                         player, playerId, playerToken,
@@ -340,6 +417,7 @@ public class StorageSyncEngine implements SyncEngine {
                 return;
             }
             String hash = HashUtil.sha256Hex(serialized);
+            clipboardManager.markSerializedClipboard(playerId, clipboard, hash);
             if (remote.exists() && hash.equalsIgnoreCase(localHash)) {
                 return;
             }
@@ -364,6 +442,7 @@ public class StorageSyncEngine implements SyncEngine {
                                  Clipboard expectedClipboard, byte[] serialized, String hash) {
         if (!isActiveCheck(player, playerId, playerToken)
                 || clipboardSerializer.getPlayerClipboard(player) != expectedClipboard) {
+            clipboardManager.clearSerializedClipboard(playerId, expectedClipboard);
             resetCheck(playerId, playerToken);
             return;
         }
@@ -379,9 +458,12 @@ public class StorageSyncEngine implements SyncEngine {
 
         ProgressHandle progress = actionBarProgress.begin(player, Operation.UPLOAD);
         try {
-            SchedulerUtil.runAsync(plugin,
+            if (SchedulerUtil.runAsync(plugin,
                     () -> uploadSerializedClipboard(
-                            playerId, playerToken, playerName, serialized, hash, progress));
+                            playerId, playerToken, playerName, serialized, hash, progress)) == null) {
+                progress.fail();
+                finishWorker(playerId, playerToken);
+            }
         } catch (RuntimeException e) {
             progress.fail();
             finishWorker(playerId, playerToken);
@@ -420,6 +502,7 @@ public class StorageSyncEngine implements SyncEngine {
                                             Exception exception) {
         boolean clipboardWasReplaced = clipboardSerializer.getPlayerClipboard(player)
                 != expectedClipboard;
+        clipboardManager.clearSerializedClipboard(playerId, expectedClipboard);
         if (!clipboardWasReplaced && clipboardManager.isCurrentPlayerToken(playerId, playerToken)) {
             logOperationalFailure(storage.description() + " clipboard serialization failed for "
                     + playerName, exception);
@@ -445,7 +528,9 @@ public class StorageSyncEngine implements SyncEngine {
             if (!actualHash.equalsIgnoreCase(remote.hash())) {
                 throw new SecurityException(storage.description() + " clipboard hash mismatch");
             }
-            Clipboard downloaded = clipboardSerializer.deserialize(data);
+            Clipboard downloaded = clipboardSerializer.deserialize(
+                    data, transferConfig.getMaxClipboardSize(),
+                    transferConfig.getMaxClipboardBlocks());
             boolean scheduled = scheduleEntityContinuation(player, playerId, playerToken, () -> {
                 if (!running.get()
                         || !player.isOnline()
@@ -462,6 +547,7 @@ public class StorageSyncEngine implements SyncEngine {
                 try {
                     clipboardSerializer.setPlayerClipboard(player, downloaded);
                     clipboardManager.setLocalHash(playerId, actualHash);
+                    clipboardManager.markSerializedClipboard(playerId, downloaded, actualHash);
                     progress.complete();
                     logger.info("Clipboard synced from " + storage.description() + " for " + playerName);
                 } catch (Exception e) {

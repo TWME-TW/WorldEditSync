@@ -37,6 +37,7 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
     private final ActionBarProgress actionBarProgress;
     private final Logger logger;
     private final ConcurrentHashMap<String, PendingUpload> pendingUploads = new ConcurrentHashMap<>();
+    private final AtomicBoolean running = new AtomicBoolean();
 
     private PluginMessageHandler messageHandler;
 
@@ -56,6 +57,7 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
 
     @Override
     public void start() {
+        running.set(true);
         plugin.getServer().getMessenger().registerOutgoingPluginChannel(plugin, Constants.CHANNEL);
         messageHandler = new PluginMessageHandler(
                 plugin, clipboardManager, clipboardSerializer, cipher, pluginMessageCodec,
@@ -66,10 +68,18 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
 
     @Override
     public void shutdown() {
+        running.set(false);
         plugin.getServer().getMessenger().unregisterOutgoingPluginChannel(plugin, Constants.CHANNEL);
         plugin.getServer().getMessenger().unregisterIncomingPluginChannel(plugin, Constants.CHANNEL);
-        pendingUploads.values().forEach(upload -> upload.progress.cancel());
-        pendingUploads.clear();
+        if (messageHandler != null) {
+            messageHandler.shutdown();
+        }
+        pendingUploads.forEach((sessionId, upload) -> {
+            if (pendingUploads.remove(sessionId, upload)) {
+                clipboardManager.releaseTransferMemory(upload.payload.length);
+                upload.progress.cancel();
+            }
+        });
         logger.info("Proxy sync engine shut down.");
     }
 
@@ -78,7 +88,8 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
         UUID playerId = player.getUniqueId();
         Object playerToken = clipboardManager.getPlayerToken(playerId);
 
-        if (!player.isOnline()
+        if (!running.get()
+                || !player.isOnline()
                 || !clipboardManager.isTracked(playerId)
                 || !ProtocolValidation.isSha256(hash)) {
             return;
@@ -93,10 +104,20 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
             return;
         }
 
+        int reservedBytes = Math.toIntExact((long) data.length
+                + (cipher.isEnabled() ? MessageCipher.ENCRYPTION_OVERHEAD_BYTES : 0L));
+        if (!clipboardManager.tryReserveTransferMemory(reservedBytes)) {
+            logger.warning("Clipboard upload is waiting because the transfer memory limit was reached for "
+                    + player.getName());
+            clipboardManager.forceSetState(playerId, SyncState.IDLE);
+            return;
+        }
+
         byte[] payload;
         try {
             payload = cipher.encrypt(data);
         } catch (Exception e) {
+            clipboardManager.releaseTransferMemory(reservedBytes);
             logger.warning("Clipboard encryption failed for " + player.getName() + ": " + e.getMessage());
             if (clipboardManager.isCurrentPlayerToken(playerId, playerToken)) {
                 clipboardManager.forgetClipboard(playerId);
@@ -105,9 +126,18 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
             return;
         }
 
-        if (!player.isOnline()
+        if (payload.length != reservedBytes) {
+            clipboardManager.releaseTransferMemory(reservedBytes);
+            logger.warning("Clipboard encryption produced an unexpected size for " + player.getName());
+            clipboardManager.forceSetState(playerId, SyncState.IDLE);
+            return;
+        }
+
+        if (!running.get()
+                || !player.isOnline()
                 || !clipboardManager.isCurrentPlayerToken(playerId, playerToken)
                 || clipboardManager.getState(playerId) != SyncState.UPLOADING) {
+            clipboardManager.releaseTransferMemory(payload.length);
             return;
         }
 
@@ -117,29 +147,41 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
 
         clipboardManager.setActiveSessionId(playerId, sessionId);
         ProgressHandle progress = actionBarProgress.begin(player, Operation.UPLOAD);
-        pendingUploads.put(sessionId,
-                new PendingUpload(playerId, payload, totalChunks, hash, progress));
+        PendingUpload pendingUpload = new PendingUpload(
+                playerId, payload, totalChunks, hash, progress);
+        pendingUploads.put(sessionId, pendingUpload);
 
-        if (!player.isOnline()
+        if (!running.get()
+                || !player.isOnline()
                 || !clipboardManager.isCurrentPlayerToken(playerId, playerToken)
                 || clipboardManager.getState(playerId) != SyncState.UPLOADING) {
-            pendingUploads.remove(sessionId);
-            progress.cancel();
+            if (pendingUploads.remove(sessionId, pendingUpload)) {
+                clipboardManager.releaseTransferMemory(payload.length);
+                progress.cancel();
+            }
             return;
         }
 
         byte[] beginMsg = pluginMessageCodec.encode(
                 ProtocolCodec.encodeUploadBegin(sessionId, payload.length, totalChunks, hash));
-        SchedulerUtil.runOnEntityThread(plugin, player, () -> {
-            if (player.isOnline() && sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
-                player.sendPluginMessage(plugin, Constants.CHANNEL, beginMsg);
+        try {
+            Object beginTask = SchedulerUtil.runOnEntityThread(plugin, player, () -> {
+                if (player.isOnline() && sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
+                    player.sendPluginMessage(plugin, Constants.CHANNEL, beginMsg);
+                }
+            });
+            Object timeoutTask = SchedulerUtil.runDelayedAsync(
+                    plugin,
+                    () -> timeoutUpload(player, sessionId),
+                    transferConfig.getSessionTimeoutMs());
+            if (beginTask == null || timeoutTask == null) {
+                failUpload(pendingUpload, sessionId);
+                return;
             }
-        });
-
-        SchedulerUtil.runDelayedAsync(
-                plugin,
-                () -> timeoutUpload(player, sessionId),
-                transferConfig.getSessionTimeoutMs());
+        } catch (RuntimeException e) {
+            failUpload(pendingUpload, sessionId);
+            return;
+        }
         logger.info("Clipboard upload started for " + player.getName()
                 + " (session: " + sessionId + ", " + data.length + " bytes)");
     }
@@ -160,11 +202,19 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
     }
 
     private void sendChunks(Player player, String sessionId, PendingUpload upload) {
-        SchedulerUtil.runOnEntityThread(plugin, player, () -> pumpUpload(player, sessionId, upload));
+        try {
+            if (SchedulerUtil.runOnEntityThread(
+                    plugin, player, () -> pumpUpload(player, sessionId, upload)) == null) {
+                failUpload(upload, sessionId);
+            }
+        } catch (RuntimeException e) {
+            failUpload(upload, sessionId);
+        }
     }
 
     private void pumpUpload(Player player, String sessionId, PendingUpload upload) {
-        if (!player.isOnline()
+        if (!running.get()
+                || !player.isOnline()
                 || !sessionId.equals(clipboardManager.getActiveSessionId(upload.playerId))) {
             failUpload(upload, sessionId);
             return;
@@ -188,8 +238,11 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
             upload.progress.update((double) upload.nextChunkIndex / upload.totalChunks);
 
             if (upload.nextChunkIndex < upload.totalChunks) {
-                SchedulerUtil.runDelayedOnEntityThread(
-                        plugin, player, () -> pumpUpload(player, sessionId, upload), pumpDelayTicks());
+                if (SchedulerUtil.runDelayedOnEntityThread(
+                        plugin, player, () -> pumpUpload(player, sessionId, upload),
+                        pumpDelayTicks()) == null) {
+                    failUpload(upload, sessionId);
+                }
             }
         } catch (Exception e) {
             logger.warning("Clipboard upload failed for " + player.getName() + ": " + e.getMessage());
@@ -220,6 +273,7 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
         if (!pendingUploads.remove(sessionId, upload)) {
             return;
         }
+        clipboardManager.releaseTransferMemory(upload.payload.length);
         upload.progress.complete();
         if (sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
             clipboardManager.setLocalHash(playerId, upload.hash);
@@ -262,10 +316,16 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
             return;
         }
         if (!upload.isExpired(transferConfig.getSessionTimeoutMs())) {
-            SchedulerUtil.runDelayedAsync(
-                    plugin,
-                    () -> timeoutUpload(player, sessionId),
-                    transferConfig.getSessionTimeoutMs());
+            try {
+                if (SchedulerUtil.runDelayedAsync(
+                        plugin,
+                        () -> timeoutUpload(player, sessionId),
+                        transferConfig.getSessionTimeoutMs()) == null) {
+                    failUpload(upload, sessionId);
+                }
+            } catch (RuntimeException e) {
+                failUpload(upload, sessionId);
+            }
             return;
         }
         if (!failUpload(upload, sessionId)) {
@@ -285,6 +345,7 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
         if (!pendingUploads.remove(sessionId, upload)) {
             return false;
         }
+        clipboardManager.releaseTransferMemory(upload.payload.length);
         upload.progress.fail();
         if (sessionId.equals(clipboardManager.getActiveSessionId(upload.playerId))) {
             clipboardManager.clearActiveSession(upload.playerId);
@@ -296,6 +357,9 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
 
     @Override
     public void onPlayerJoinServer(Player player) {
+        if (!running.get()) {
+            return;
+        }
         UUID playerId = player.getUniqueId();
         String requestId = UUID.randomUUID().toString();
         clipboardManager.initPlayer(playerId);
@@ -304,6 +368,9 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
     }
 
     private void sendInitialSyncRequest(Player player, String requestId, int attempt) {
+        if (!running.get()) {
+            return;
+        }
         SchedulerUtil.runOnEntityThread(plugin, player, () -> {
             UUID playerId = player.getUniqueId();
             if (!player.isOnline()
@@ -339,12 +406,16 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
         if (state == SyncState.UPLOADING || state == SyncState.DOWNLOADING) {
             String sessionId = clipboardManager.getActiveSessionId(playerId);
             if (sessionId != null) {
-                pendingUploads.remove(sessionId);
+                PendingUpload removed = pendingUploads.remove(sessionId);
+                if (removed != null) {
+                    clipboardManager.releaseTransferMemory(removed.payload.length);
+                    removed.progress.cancel();
+                }
                 byte[] cancelMsg = pluginMessageCodec.encode(
                         ProtocolCodec.encodeCancel(sessionId, "player_quit"));
                 try {
                     player.sendPluginMessage(plugin, Constants.CHANNEL, cancelMsg);
-                } catch (Exception ignored) {
+                } catch (RuntimeException ignored) {
                     // Player might already be disconnected
                 }
             }
@@ -385,7 +456,8 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
         }
 
         private boolean isExpired(long timeoutMs) {
-            return System.currentTimeMillis() - lastActivityAt >= timeoutMs;
+            long now = System.currentTimeMillis();
+            return now < lastActivityAt || now - lastActivityAt >= timeoutMs;
         }
     }
 }

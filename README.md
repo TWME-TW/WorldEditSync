@@ -24,7 +24,7 @@ Only choose one setup. Every participating backend server must use the same setu
 
 - Download the latest `WorldEditSync.jar` from the [releases page](https://github.com/TWME-TW/WorldEditSync/releases).
 - Install WorldEdit on every Paper, Folia, or Spigot server. Paper servers may use FAWE instead.
-- Use the same WorldEditSync version on every participating server and proxy.
+- Use the same WorldEditSync version on every participating server and proxy. Velocity 3.x and 4.x are supported; Velocity 4 requires Java 25.
 - Make sure a player has the same UUID on every backend server. Configure BungeeCord IP forwarding or Velocity player forwarding correctly before testing.
 - Use Java 21 or the newer Java version required by your WorldEdit or FAWE download.
 

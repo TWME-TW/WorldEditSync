@@ -11,6 +11,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import com.sk89q.worldedit.extent.clipboard.Clipboard;
 
 import dev.twme.worldeditsync.common.model.SyncState;
+import dev.twme.worldeditsync.common.config.TransferConfig;
 import dev.twme.worldeditsync.common.util.HashUtil;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardSerializer;
@@ -28,6 +29,7 @@ public class ClipboardWatcher {
     private final ClipboardManager clipboardManager;
     private final ClipboardSerializer clipboardSerializer;
     private final SyncEngine syncEngine;
+    private final TransferConfig transferConfig;
     private final Logger logger;
     private final Semaphore serializationSlots = new Semaphore(2);
     private final AtomicBoolean scanPending = new AtomicBoolean();
@@ -35,11 +37,13 @@ public class ClipboardWatcher {
     private Object watcherTask;
 
     public ClipboardWatcher(JavaPlugin plugin, ClipboardManager clipboardManager,
-                            ClipboardSerializer clipboardSerializer, SyncEngine syncEngine) {
+                            ClipboardSerializer clipboardSerializer, SyncEngine syncEngine,
+                            TransferConfig transferConfig) {
         this.plugin = plugin;
         this.clipboardManager = clipboardManager;
         this.clipboardSerializer = clipboardSerializer;
         this.syncEngine = syncEngine;
+        this.transferConfig = transferConfig;
         this.logger = plugin.getLogger();
     }
 
@@ -51,27 +55,40 @@ public class ClipboardWatcher {
 
     public void cancel() {
         running.set(false);
-        SchedulerUtil.cancelTask(watcherTask);
+        Object activeTask = watcherTask;
+        watcherTask = null;
+        SchedulerUtil.cancelTask(activeTask);
+        scanPending.set(false);
     }
 
     public void run() {
         if (!running.get() || !scanPending.compareAndSet(false, true)) {
             return;
         }
-        SchedulerUtil.runOnGlobalThread(plugin, () -> {
-            try {
-                for (Player player : plugin.getServer().getOnlinePlayers()) {
-                    SchedulerUtil.runOnEntityThread(plugin, player, () -> detectAndUpload(player));
+        try {
+            if (SchedulerUtil.runOnGlobalThread(plugin, () -> {
+                try {
+                    if (!running.get()) {
+                        return;
+                    }
+                    for (Player player : plugin.getServer().getOnlinePlayers()) {
+                        SchedulerUtil.runOnEntityThread(plugin, player, () -> detectAndUpload(player));
+                    }
+                } finally {
+                    scanPending.set(false);
                 }
-            } finally {
+            }) == null) {
                 scanPending.set(false);
             }
-        });
+        } catch (RuntimeException e) {
+            scanPending.set(false);
+        }
     }
 
     private void detectAndUpload(Player player) {
         UUID playerId = player.getUniqueId();
-        if (!player.isOnline()
+        if (!running.get()
+                || !player.isOnline()
                 || !player.hasPermission("worldeditsync.sync")
                 || !clipboardManager.isTracked(playerId)) {
             return;
@@ -85,6 +102,10 @@ public class ClipboardWatcher {
         try {
             Clipboard clipboard = clipboardSerializer.getPlayerClipboard(player);
             if (clipboard == null) {
+                clipboardManager.forceSetState(playerId, SyncState.IDLE);
+                return;
+            }
+            if (clipboardManager.isSerializedClipboard(playerId, clipboard)) {
                 clipboardManager.forceSetState(playerId, SyncState.IDLE);
                 return;
             }
@@ -117,9 +138,12 @@ public class ClipboardWatcher {
         }
 
         try {
-            SchedulerUtil.runAsync(plugin,
+            if (SchedulerUtil.runAsync(plugin,
                     () -> serializeClipboard(
-                            player, playerId, playerToken, playerName, expectedClipboard));
+                            player, playerId, playerToken, playerName, expectedClipboard)) == null) {
+                serializationSlots.release();
+                resetCheck(playerId, playerToken);
+            }
         } catch (RuntimeException e) {
             serializationSlots.release();
             resetCheck(playerId, playerToken);
@@ -130,12 +154,16 @@ public class ClipboardWatcher {
     private void serializeClipboard(Player player, UUID playerId, Object playerToken,
                                     String playerName, Clipboard clipboard) {
         try {
-            byte[] serialized = clipboardSerializer.serialize(clipboard);
+            byte[] serialized = clipboardSerializer.serialize(
+                    clipboard, transferConfig.getMaxClipboardSize(),
+                    transferConfig.getMaxClipboardBlocks());
             String hash = HashUtil.sha256Hex(serialized);
+            clipboardManager.markSerializedClipboard(playerId, clipboard, hash);
             scheduleEntityContinuation(player, playerId, playerToken,
                     () -> publishIfCurrent(
                             player, playerId, playerToken, clipboard, serialized, hash));
         } catch (Exception e) {
+            clipboardManager.clearSerializedClipboard(playerId, clipboard);
             scheduleEntityContinuation(player, playerId, playerToken,
                     () -> handleSerializationFailure(
                             player, playerId, playerToken, playerName, clipboard, e));
@@ -148,6 +176,7 @@ public class ClipboardWatcher {
                                   Clipboard expectedClipboard, byte[] serialized, String hash) {
         if (!isActiveCheck(player, playerId, playerToken)
                 || clipboardSerializer.getPlayerClipboard(player) != expectedClipboard) {
+            clipboardManager.clearSerializedClipboard(playerId, expectedClipboard);
             resetCheck(playerId, playerToken);
             return;
         }
@@ -158,7 +187,10 @@ public class ClipboardWatcher {
 
         try {
             // Encryption and upload preparation can be proportional to clipboard size.
-            SchedulerUtil.runAsync(plugin, () -> syncEngine.uploadClipboard(player, serialized, hash));
+            if (SchedulerUtil.runAsync(
+                    plugin, () -> syncEngine.uploadClipboard(player, serialized, hash)) == null) {
+                resetCheck(playerId, playerToken);
+            }
         } catch (RuntimeException e) {
             resetCheck(playerId, playerToken);
             throw e;

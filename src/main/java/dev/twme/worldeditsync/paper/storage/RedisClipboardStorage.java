@@ -240,7 +240,7 @@ public final class RedisClipboardStorage implements ClipboardStorage {
                 BinaryJedisPubSub listener = new BinaryJedisPubSub() {
                     @Override
                     public void onMessage(byte[] channel, byte[] message) {
-                        if (subscriberRunning.get()) {
+                        if (subscriberRunning.get() && isCanonicalUuid(message)) {
                             try {
                                 updateListener.accept(string(message));
                             } catch (RuntimeException e) {
@@ -312,5 +312,25 @@ public final class RedisClipboardStorage implements ClipboardStorage {
 
     private static String string(byte[] value) {
         return new String(value, StandardCharsets.UTF_8);
+    }
+
+    private static boolean isCanonicalUuid(byte[] value) {
+        if (value == null || value.length != 36) {
+            return false;
+        }
+        for (int index = 0; index < value.length; index++) {
+            byte character = value[index];
+            boolean hyphenPosition = index == 8 || index == 13 || index == 18 || index == 23;
+            if (hyphenPosition) {
+                if (character != '-') {
+                    return false;
+                }
+            } else if (!((character >= '0' && character <= '9')
+                    || (character >= 'a' && character <= 'f')
+                    || (character >= 'A' && character <= 'F'))) {
+                return false;
+            }
+        }
+        return true;
     }
 }

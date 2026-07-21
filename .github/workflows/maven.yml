@@ -8,20 +8,28 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - velocity-api: '3.4.0'
+            java: '21'
+          - velocity-api: '4.0.0'
+            java: '25'
 
     steps:
       - uses: actions/checkout@v6
-      - name: Set up JDK 21
+      - name: Set up JDK
         uses: actions/setup-java@v5
         with:
-          java-version: '21'
+          java-version: ${{ matrix.java }}
           distribution: 'temurin'
           cache: maven
       - name: Build with Maven
-        run: mvn -B package --file pom.xml
+        run: mvn -B -Dvelocity-api.version=${{ matrix.velocity-api }} package --file pom.xml
       - name: Upload JAR
+        if: matrix.velocity-api == '3.4.0'
         uses: actions/upload-artifact@v7
         with:
           name: WorldEditSync
