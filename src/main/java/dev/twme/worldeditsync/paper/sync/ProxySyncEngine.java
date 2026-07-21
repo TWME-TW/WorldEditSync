@@ -18,6 +18,9 @@ import dev.twme.worldeditsync.common.protocol.ProtocolValidation;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardSerializer;
 import dev.twme.worldeditsync.paper.message.PluginMessageHandler;
+import dev.twme.worldeditsync.paper.ui.ActionBarProgress;
+import dev.twme.worldeditsync.paper.ui.ActionBarProgress.Operation;
+import dev.twme.worldeditsync.paper.ui.ActionBarProgress.ProgressHandle;
 import dev.twme.worldeditsync.paper.util.SchedulerUtil;
 
 /**
@@ -31,6 +34,7 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
     private final MessageCipher cipher;
     private final PluginMessageCodec pluginMessageCodec;
     private final TransferConfig transferConfig;
+    private final ActionBarProgress actionBarProgress;
     private final Logger logger;
     private final ConcurrentHashMap<String, PendingUpload> pendingUploads = new ConcurrentHashMap<>();
 
@@ -38,13 +42,15 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
 
     public ProxySyncEngine(JavaPlugin plugin, ClipboardManager clipboardManager,
                            ClipboardSerializer clipboardSerializer, MessageCipher cipher,
-                           PluginMessageCodec pluginMessageCodec, TransferConfig transferConfig) {
+                           PluginMessageCodec pluginMessageCodec, TransferConfig transferConfig,
+                           ActionBarProgress actionBarProgress) {
         this.plugin = plugin;
         this.clipboardManager = clipboardManager;
         this.clipboardSerializer = clipboardSerializer;
         this.cipher = cipher;
         this.pluginMessageCodec = pluginMessageCodec;
         this.transferConfig = transferConfig;
+        this.actionBarProgress = actionBarProgress;
         this.logger = plugin.getLogger();
     }
 
@@ -53,7 +59,7 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
         plugin.getServer().getMessenger().registerOutgoingPluginChannel(plugin, Constants.CHANNEL);
         messageHandler = new PluginMessageHandler(
                 plugin, clipboardManager, clipboardSerializer, cipher, pluginMessageCodec,
-                transferConfig, this);
+                transferConfig, this, actionBarProgress);
         plugin.getServer().getMessenger().registerIncomingPluginChannel(plugin, Constants.CHANNEL, messageHandler);
         logger.info("Proxy sync engine started on channel: " + Constants.CHANNEL);
     }
@@ -62,6 +68,7 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
     public void shutdown() {
         plugin.getServer().getMessenger().unregisterOutgoingPluginChannel(plugin, Constants.CHANNEL);
         plugin.getServer().getMessenger().unregisterIncomingPluginChannel(plugin, Constants.CHANNEL);
+        pendingUploads.values().forEach(upload -> upload.progress.cancel());
         pendingUploads.clear();
         logger.info("Proxy sync engine shut down.");
     }
@@ -109,12 +116,15 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
         String sessionId = UUID.randomUUID().toString();
 
         clipboardManager.setActiveSessionId(playerId, sessionId);
-        pendingUploads.put(sessionId, new PendingUpload(playerId, payload, totalChunks, hash));
+        ProgressHandle progress = actionBarProgress.begin(player, Operation.UPLOAD);
+        pendingUploads.put(sessionId,
+                new PendingUpload(playerId, payload, totalChunks, hash, progress));
 
         if (!player.isOnline()
                 || !clipboardManager.isCurrentPlayerToken(playerId, playerToken)
                 || clipboardManager.getState(playerId) != SyncState.UPLOADING) {
             pendingUploads.remove(sessionId);
+            progress.cancel();
             return;
         }
 
@@ -156,7 +166,7 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
     private void pumpUpload(Player player, String sessionId, PendingUpload upload) {
         if (!player.isOnline()
                 || !sessionId.equals(clipboardManager.getActiveSessionId(upload.playerId))) {
-            failUpload(upload.playerId, sessionId);
+            failUpload(upload, sessionId);
             return;
         }
 
@@ -175,13 +185,15 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
                 upload.touch();
             }
 
+            upload.progress.update((double) upload.nextChunkIndex / upload.totalChunks);
+
             if (upload.nextChunkIndex < upload.totalChunks) {
                 SchedulerUtil.runDelayedOnEntityThread(
                         plugin, player, () -> pumpUpload(player, sessionId, upload), pumpDelayTicks());
             }
         } catch (Exception e) {
             logger.warning("Clipboard upload failed for " + player.getName() + ": " + e.getMessage());
-            failUpload(upload.playerId, sessionId);
+            failUpload(upload, sessionId);
         }
     }
 
@@ -205,7 +217,10 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
             return;
         }
 
-        pendingUploads.remove(sessionId, upload);
+        if (!pendingUploads.remove(sessionId, upload)) {
+            return;
+        }
+        upload.progress.complete();
         if (sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
             clipboardManager.setLocalHash(playerId, upload.hash);
             clipboardManager.clearActiveSession(playerId);
@@ -221,9 +236,9 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
         if (upload == null || !upload.playerId.equals(player.getUniqueId())) {
             return;
         }
-        pendingUploads.remove(sessionId, upload);
-        failUpload(upload.playerId, sessionId);
-        logger.warning("Clipboard upload cancelled for " + player.getName() + ": " + reason);
+        if (failUpload(upload, sessionId)) {
+            logger.warning("Clipboard upload cancelled for " + player.getName() + ": " + reason);
+        }
     }
 
     @Override
@@ -253,7 +268,7 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
                     transferConfig.getSessionTimeoutMs());
             return;
         }
-        if (!pendingUploads.remove(sessionId, upload)) {
+        if (!failUpload(upload, sessionId)) {
             return;
         }
         SchedulerUtil.runOnEntityThread(plugin, player, () -> {
@@ -262,18 +277,21 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
                         pluginMessageCodec.encode(ProtocolCodec.encodeCancel(sessionId, "upload_timeout")));
             }
         });
-        failUpload(upload.playerId, sessionId);
         logger.warning("Clipboard upload timed out for " + player.getName()
                 + " (session: " + sessionId + ")");
     }
 
-    private void failUpload(UUID playerId, String sessionId) {
-        pendingUploads.remove(sessionId);
-        if (sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
-            clipboardManager.clearActiveSession(playerId);
-            clipboardManager.forgetClipboard(playerId);
-            clipboardManager.forceSetState(playerId, SyncState.IDLE);
+    private boolean failUpload(PendingUpload upload, String sessionId) {
+        if (!pendingUploads.remove(sessionId, upload)) {
+            return false;
         }
+        upload.progress.fail();
+        if (sessionId.equals(clipboardManager.getActiveSessionId(upload.playerId))) {
+            clipboardManager.clearActiveSession(upload.playerId);
+            clipboardManager.forgetClipboard(upload.playerId);
+            clipboardManager.forceSetState(upload.playerId, SyncState.IDLE);
+        }
+        return true;
     }
 
     @Override
@@ -335,6 +353,7 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
         if (messageHandler != null) {
             messageHandler.removePlayer(playerId);
         }
+        actionBarProgress.removePlayer(playerId);
         clipboardManager.removePlayer(playerId);
     }
 
@@ -347,15 +366,18 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
         private final byte[] payload;
         private final int totalChunks;
         private final String hash;
+        private final ProgressHandle progress;
         private final AtomicBoolean started = new AtomicBoolean();
         private volatile long lastActivityAt = System.currentTimeMillis();
         private int nextChunkIndex;
 
-        private PendingUpload(UUID playerId, byte[] payload, int totalChunks, String hash) {
+        private PendingUpload(UUID playerId, byte[] payload, int totalChunks, String hash,
+                              ProgressHandle progress) {
             this.playerId = playerId;
             this.payload = payload;
             this.totalChunks = totalChunks;
             this.hash = hash;
+            this.progress = progress;
         }
 
         private void touch() {

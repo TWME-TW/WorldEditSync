@@ -6,6 +6,7 @@ WorldEditSync lets players copy a WorldEdit selection on one server and paste it
 
 - Copy once with `//copy` or `//cut`, then paste on another server with `//paste`.
 - Keep the clipboard origin and offset when moving between servers.
+- See clipboard upload and download status in the Action Bar.
 - Use the normal WorldEdit or FAWE workflow without learning extra commands.
 - Control access with the `worldeditsync.sync` permission, which is granted to everyone by default.
 
@@ -186,6 +187,8 @@ Use an endpoint that every backend server can reach. Set `region` when your prov
 
 There are no WorldEditSync commands. Once installed, players continue using normal WorldEdit or FAWE commands.
 
+Action Bar status is enabled by default. Proxy transfers show measured percentage progress. Database and S3 transfers show when synchronization starts and finishes because those services complete each read or write as one operation. Intermediate percentages are combined, require at least a 10% change, and appear at most once per second per player; start and completion are each shown at most once. Set `action-bar.enabled: false` in `plugins/WorldEditSync/config.yml` to hide them.
+
 ## Permissions
 
 `worldeditsync.sync` controls who can synchronize clipboards. It is granted to all players by default. Deny this permission with your permissions plugin when only selected builders should use cross-server clipboards.
@@ -199,6 +202,7 @@ There are no WorldEditSync commands. Once installed, players continue using norm
 | The console reports decryption or token errors | Copy the exact same token to every participating server. Old stored clipboards created with another token cannot be opened. |
 | Database mode keeps retrying | Check the host, port, credentials, firewall, and database permissions from every backend server. |
 | S3 mode keeps retrying | Check the endpoint, bucket, credentials, region, and bucket permissions. |
+| No Action Bar status appears | Confirm `action-bar.enabled` is `true`. Very small transfers may finish before an intermediate percentage needs to be shown. |
 | Velocity or BungeeCord players get different UUIDs | Fix proxy player forwarding before using WorldEditSync. Existing clipboards are stored under the UUID seen by the backend server. |
 | A server cannot download libraries on first startup | Allow the server to reach Maven Central, then restart it. |
 

@@ -19,6 +19,9 @@ import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardSerializer;
 import dev.twme.worldeditsync.common.storage.ClipboardStorage;
 import dev.twme.worldeditsync.common.storage.StoredClipboard;
+import dev.twme.worldeditsync.paper.ui.ActionBarProgress;
+import dev.twme.worldeditsync.paper.ui.ActionBarProgress.Operation;
+import dev.twme.worldeditsync.paper.ui.ActionBarProgress.ProgressHandle;
 import dev.twme.worldeditsync.paper.util.SchedulerUtil;
 
 /** Synchronizes clipboards through shared storage without network I/O on server threads. */
@@ -33,6 +36,7 @@ public class StorageSyncEngine implements SyncEngine {
     private final ClipboardStorage storage;
     private final TransferConfig transferConfig;
     private final int checkIntervalTicks;
+    private final ActionBarProgress actionBarProgress;
     private final Logger logger;
     private final Object lifecycleLock = new Object();
     private final Semaphore workerSlots = new Semaphore(2);
@@ -47,13 +51,15 @@ public class StorageSyncEngine implements SyncEngine {
 
     public StorageSyncEngine(JavaPlugin plugin, ClipboardManager clipboardManager,
                              ClipboardSerializer clipboardSerializer, ClipboardStorage storage,
-                             TransferConfig transferConfig, int checkIntervalTicks) {
+                             TransferConfig transferConfig, int checkIntervalTicks,
+                             ActionBarProgress actionBarProgress) {
         this.plugin = plugin;
         this.clipboardManager = clipboardManager;
         this.clipboardSerializer = clipboardSerializer;
         this.storage = storage;
         this.transferConfig = transferConfig;
         this.checkIntervalTicks = Math.max(1, checkIntervalTicks);
+        this.actionBarProgress = actionBarProgress;
         this.logger = plugin.getLogger();
         this.storage.setUpdateListener(this::onStorageUpdate);
     }
@@ -178,11 +184,13 @@ public class StorageSyncEngine implements SyncEngine {
         }
 
         String playerName = player.getName();
+        ProgressHandle progress = actionBarProgress.begin(player, Operation.UPLOAD);
         try {
             SchedulerUtil.runAsync(plugin,
                     () -> uploadSerializedClipboard(
-                            playerId, playerToken, playerName, data, hash));
+                            playerId, playerToken, playerName, data, hash, progress));
         } catch (RuntimeException e) {
+            progress.fail();
             finishWorker(playerId, playerToken);
             throw e;
         }
@@ -195,6 +203,7 @@ public class StorageSyncEngine implements SyncEngine {
 
     @Override
     public void onPlayerQuit(Player player) {
+        actionBarProgress.removePlayer(player.getUniqueId());
         clipboardManager.removePlayer(player.getUniqueId());
     }
 
@@ -368,31 +377,38 @@ public class StorageSyncEngine implements SyncEngine {
             return;
         }
 
+        ProgressHandle progress = actionBarProgress.begin(player, Operation.UPLOAD);
         try {
             SchedulerUtil.runAsync(plugin,
                     () -> uploadSerializedClipboard(
-                            playerId, playerToken, playerName, serialized, hash));
+                            playerId, playerToken, playerName, serialized, hash, progress));
         } catch (RuntimeException e) {
+            progress.fail();
             finishWorker(playerId, playerToken);
             throw e;
         }
     }
 
     private void uploadSerializedClipboard(UUID playerId, Object playerToken,
-                                           String playerName, byte[] data, String hash) {
+                                           String playerName, byte[] data, String hash,
+                                           ProgressHandle progress) {
         try {
             if (!running.get() || !ready.get()
                     || !clipboardManager.isCurrentPlayerToken(playerId, playerToken)) {
+                progress.cancel();
                 return;
             }
             storage.upload(playerId.toString(), data, hash, System.currentTimeMillis());
             if (!running.get()
                     || !clipboardManager.isCurrentPlayerToken(playerId, playerToken)) {
+                progress.cancel();
                 return;
             }
             clipboardManager.setLocalHash(playerId, hash);
+            progress.complete();
             logger.fine("Uploaded clipboard to " + storage.description() + " for " + playerName);
         } catch (Exception e) {
+            progress.fail();
             logOperationalFailure(storage.description() + " upload failed for " + playerName, e);
         } finally {
             finishWorker(playerId, playerToken);
@@ -422,35 +438,48 @@ public class StorageSyncEngine implements SyncEngine {
             return false;
         }
 
-        byte[] data = storage.download(playerId.toString(), remote);
-        String actualHash = HashUtil.sha256Hex(data);
-        if (!actualHash.equalsIgnoreCase(remote.hash())) {
-            throw new SecurityException(storage.description() + " clipboard hash mismatch");
-        }
-        Clipboard downloaded = clipboardSerializer.deserialize(data);
-        return scheduleEntityContinuation(player, playerId, playerToken, () -> {
-            if (!running.get()
-                    || !player.isOnline()
-                    || !clipboardManager.isCurrentPlayerToken(playerId, playerToken)
-                    || clipboardManager.getState(playerId) != SyncState.DOWNLOADING
-                    || clipboardSerializer.getPlayerClipboard(player) != expectedClipboard) {
-                if (clipboardManager.isCurrentPlayerToken(playerId, playerToken)
-                        && clipboardManager.getState(playerId) == SyncState.DOWNLOADING) {
+        ProgressHandle progress = actionBarProgress.begin(player, Operation.DOWNLOAD);
+        try {
+            byte[] data = storage.download(playerId.toString(), remote);
+            String actualHash = HashUtil.sha256Hex(data);
+            if (!actualHash.equalsIgnoreCase(remote.hash())) {
+                throw new SecurityException(storage.description() + " clipboard hash mismatch");
+            }
+            Clipboard downloaded = clipboardSerializer.deserialize(data);
+            boolean scheduled = scheduleEntityContinuation(player, playerId, playerToken, () -> {
+                if (!running.get()
+                        || !player.isOnline()
+                        || !clipboardManager.isCurrentPlayerToken(playerId, playerToken)
+                        || clipboardManager.getState(playerId) != SyncState.DOWNLOADING
+                        || clipboardSerializer.getPlayerClipboard(player) != expectedClipboard) {
+                    progress.cancel();
+                    if (clipboardManager.isCurrentPlayerToken(playerId, playerToken)
+                            && clipboardManager.getState(playerId) == SyncState.DOWNLOADING) {
+                        clipboardManager.forceSetState(playerId, SyncState.IDLE);
+                    }
+                    return;
+                }
+                try {
+                    clipboardSerializer.setPlayerClipboard(player, downloaded);
+                    clipboardManager.setLocalHash(playerId, actualHash);
+                    progress.complete();
+                    logger.info("Clipboard synced from " + storage.description() + " for " + playerName);
+                } catch (Exception e) {
+                    progress.fail();
+                    logger.severe("Failed to apply " + storage.description() + " clipboard for "
+                            + playerName + ": " + e.getMessage());
+                } finally {
                     clipboardManager.forceSetState(playerId, SyncState.IDLE);
                 }
-                return;
+            });
+            if (!scheduled) {
+                progress.cancel();
             }
-            try {
-                clipboardSerializer.setPlayerClipboard(player, downloaded);
-                clipboardManager.setLocalHash(playerId, actualHash);
-                logger.info("Clipboard synced from " + storage.description() + " for " + playerName);
-            } catch (Exception e) {
-                logger.severe("Failed to apply " + storage.description() + " clipboard for "
-                        + playerName + ": " + e.getMessage());
-            } finally {
-                clipboardManager.forceSetState(playerId, SyncState.IDLE);
-            }
-        });
+            return scheduled;
+        } catch (Exception e) {
+            progress.fail();
+            throw e;
+        }
     }
 
     private boolean isActiveCheck(Player player, UUID playerId, Object playerToken) {

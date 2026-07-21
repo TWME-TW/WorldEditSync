@@ -47,6 +47,21 @@ public class PaperConfigTest {
         assertEquals(StorageType.POSTGRESQL, config.getDatabaseSettings().type());
     }
 
+    @Test
+    public void canDisableActionBarStatus() {
+        JavaPlugin plugin = mock(JavaPlugin.class);
+        FileConfiguration fileConfig = mock(FileConfiguration.class);
+        when(plugin.getConfig()).thenReturn(fileConfig);
+        when(fileConfig.getString("sync-mode", "proxy")).thenReturn("proxy");
+        when(fileConfig.getString("token", "")).thenReturn("token");
+        when(fileConfig.getBoolean("action-bar.enabled", true)).thenReturn(false);
+
+        PaperConfig config = new PaperConfig();
+        config.load(plugin);
+
+        assertFalse(config.isActionBarEnabled());
+    }
+
     private PaperConfig loadWithMode(String mode) {
         JavaPlugin plugin = mock(JavaPlugin.class);
         FileConfiguration fileConfig = mock(FileConfiguration.class);
