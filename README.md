@@ -1,46 +1,56 @@
 # WorldEditSync
 
-WorldEditSync lets players copy a WorldEdit selection on one Paper server and paste it on another. It works with both WorldEdit and FastAsyncWorldEdit (FAWE), and synchronization happens automatically without extra player commands.
+WorldEditSync lets players copy a WorldEdit selection on one server and paste it on another. It supports Paper, Folia, and Spigot with WorldEdit; Paper servers can also use FastAsyncWorldEdit (FAWE). Synchronization happens automatically without extra player commands.
 
 ## What Players Get
 
 - Copy once with `//copy` or `//cut`, then paste on another server with `//paste`.
 - Keep the clipboard origin and offset when moving between servers.
-- Use the same workflow with WorldEdit or FAWE.
+- Use the normal WorldEdit or FAWE workflow without learning extra commands.
 - Control access with the `worldeditsync.sync` permission, which is granted to everyone by default.
 
 ## Choose a Setup
 
 | Setup | Choose this when | Install WorldEditSync on | Extra service |
 | --- | --- | --- | --- |
-| **Proxy** | Your servers already use BungeeCord or Velocity. This is the simplest option for most proxy networks. | Every Paper server and the proxy | None |
-| **Database** | You want the Paper servers to share clipboards without installing the plugin on a proxy. | Every Paper server | Redis, Valkey, KeyDB, MySQL, MariaDB, PostgreSQL, or a shared local SQLite file |
-| **S3** | You already run MinIO, AWS S3, or another S3-compatible service. | Every Paper server | An S3-compatible bucket |
+| **Proxy** | Your servers already use BungeeCord or Velocity. This is the simplest option for most proxy networks. | Every backend server and the proxy | None |
+| **Database** | You want the backend servers to share clipboards without installing the plugin on a proxy. | Every backend server | Redis, Valkey, KeyDB, MySQL, MariaDB, PostgreSQL, or a shared local SQLite file |
+| **S3** | You already run MinIO, AWS S3, or another S3-compatible service. | Every backend server | An S3-compatible bucket |
 
-Only choose one setup. Every participating Paper server must use the same setup and settings.
+Only choose one setup. Every participating backend server must use the same setup and settings.
 
 ## Before You Start
 
 - Download the latest `WorldEditSync.jar` from the [releases page](https://github.com/TWME-TW/WorldEditSync/releases).
-- Install WorldEdit or FAWE on every Paper server.
+- Install WorldEdit on every Paper, Folia, or Spigot server. Paper servers may use FAWE instead.
 - Use the same WorldEditSync version on every participating server and proxy.
-- Make sure a player has the same UUID on every Paper server. Configure BungeeCord IP forwarding or Velocity player forwarding correctly before testing.
-- Use Java 21. Testing covers Paper 1.21.11 with WorldEdit 7.4 and with FAWE 2.15.
+- Make sure a player has the same UUID on every backend server. Configure BungeeCord IP forwarding or Velocity player forwarding correctly before testing.
+- Use Java 21 or the newer Java version required by your WorldEdit or FAWE download.
 
-## Install on Paper
+Tested combinations for Minecraft 1.21.11:
 
-1. Stop every Paper server.
+| Server | WorldEdit 7.4.1 | FAWE 2.15 |
+| --- | --- | --- |
+| Paper | Supported | Supported |
+| Folia | Supported | Not currently available; use WorldEdit |
+| Spigot | Supported | Not currently available; use WorldEdit |
+
+Current FAWE releases do not load on Folia and did not start successfully on Spigot 1.21.11 during testing. This is a limitation of FAWE on those server types, not a WorldEditSync configuration issue.
+
+## Install on Backend Servers
+
+1. Stop every participating Paper, Folia, or Spigot server.
 2. Put `WorldEditSync.jar` in each server's `plugins` directory.
 3. Start each server once so WorldEditSync can create `plugins/WorldEditSync/config.yml`.
 4. Stop the servers again before editing the configuration.
 5. Follow one of the setup guides below.
 6. Restart every participating server after the configuration matches.
 
-The first Paper startup may take longer while required libraries are downloaded. With the default empty token, Proxy mode will remain disabled until configuration is complete; this is expected.
+The first startup may take longer while required libraries are downloaded. With the default empty token, Proxy mode will remain disabled until configuration is complete; this is expected.
 
 ## Shared Token
 
-Set a long, random `token` and use the exact same value on every participating Paper server. Proxy mode must also use that value on BungeeCord or Velocity.
+Set a long, random `token` and use the exact same value on every participating backend server. Proxy mode must also use that value on BungeeCord or Velocity.
 
 You can generate a token on Linux or macOS with:
 
@@ -54,11 +64,11 @@ The examples below show only the settings that normally need to change. Leave ot
 
 ## Proxy Setup
 
-Use this setup when players move between Paper servers through BungeeCord or Velocity.
+Use this setup when players move between backend servers through BungeeCord or Velocity.
 
 1. Put the same `WorldEditSync.jar` in the proxy's `plugins` directory.
 2. Start the proxy once to create its configuration, then stop it.
-3. On every Paper server, set:
+3. On every backend server, set:
 
 ```yaml
 sync-mode: "proxy"
@@ -74,19 +84,19 @@ token: "replace-with-the-same-random-token"
 token: "replace-with-the-same-random-token"
 ```
 
-5. Start the proxy and all Paper servers.
+5. Start the proxy and all backend servers.
 
-Leave the `transfer` settings at their defaults. If you change them later, copy the same values to every Paper server and the proxy.
+Leave the `transfer` settings at their defaults. If you change them later, copy the same values to every backend server and the proxy.
 
 ## Database Setup
 
-Database mode only needs WorldEditSync on the Paper servers. Do not install it on the proxy for this mode.
+Database mode only needs WorldEditSync on the backend servers. Do not install it on the proxy for this mode.
 
-First create the database, account, or Redis instance. Every Paper server must be able to reach it using the same settings. For MySQL, MariaDB, and PostgreSQL, let the account create its table and read, insert, update, and delete rows in the selected database.
+First create the database, account, or Redis instance. Every backend server must be able to reach it using the same settings. For MySQL, MariaDB, and PostgreSQL, let the account create its table and read, insert, update, and delete rows in the selected database.
 
 ### Redis, Valkey, or KeyDB
 
-Redis is the recommended database option when you are starting from scratch. On every Paper server, set:
+Redis is the recommended database option when you are starting from scratch. On every backend server, set:
 
 ```yaml
 sync-mode: "database"
@@ -131,7 +141,7 @@ In the generated `database` section, set `ttl-minutes: 0` if stored clipboards s
 
 ### SQLite on One Machine
 
-Use SQLite only when all Paper processes run on the same machine. They must point to one shared local file; the default file inside each individual server directory will not synchronize separate servers.
+Use SQLite only when all backend server processes run on the same machine. They must point to one shared local file; the default file inside each individual server directory will not synchronize separate servers.
 
 ```yaml
 sync-mode: "database"
@@ -142,13 +152,13 @@ database:
   url: "jdbc:sqlite:/srv/minecraft/shared/worldeditsync.db"
 ```
 
-Do not place the SQLite file on NFS or another network filesystem. Use Redis, MySQL/MariaDB, or PostgreSQL when Paper servers run on different machines.
+Do not place the SQLite file on NFS or another network filesystem. Use Redis, MySQL/MariaDB, or PostgreSQL when backend servers run on different machines.
 
 ## S3 Setup
 
 Use this setup with MinIO, AWS S3, or another compatible service. The credentials need access to read and write objects in the bucket. If the bucket does not exist, the credentials must also allow WorldEditSync to create it.
 
-On every Paper server, set:
+On every backend server, set:
 
 ```yaml
 sync-mode: "s3"
@@ -162,15 +172,15 @@ s3:
   region: ""
 ```
 
-Use an endpoint that every Paper server can reach. Set `region` when your provider requires one; it can remain empty for most MinIO installations.
+Use an endpoint that every backend server can reach. Set `region` when your provider requires one; it can remain empty for most MinIO installations.
 
 ## Check the Installation
 
 1. Start every server involved in synchronization.
 2. Check each console for `WorldEditSync enabled` and a message that its sync engine started.
-3. Join the first Paper server and select a small, asymmetric region.
+3. Join the first backend server and select a small, asymmetric region.
 4. Run `//copy`, then wait a few seconds for the clipboard to upload.
-5. Move to the second Paper server with the same player account.
+5. Move to the second backend server with the same player account.
 6. Wait a few seconds, move to a safe test location, and run `//paste`.
 7. Confirm that the blocks and clipboard offset match the original selection.
 
@@ -184,23 +194,23 @@ There are no WorldEditSync commands. Once installed, players continue using norm
 
 | Problem | What to check |
 | --- | --- |
-| WorldEditSync disables itself in Proxy mode | Set a non-empty token on every Paper server and the proxy, then restart them. |
+| WorldEditSync disables itself in Proxy mode | Set a non-empty token on every backend server and the proxy, then restart them. |
 | A clipboard never appears on the other server | Confirm both servers use the same mode, token, WorldEditSync version, and player UUID. Wait a few seconds after `//copy`. |
 | The console reports decryption or token errors | Copy the exact same token to every participating server. Old stored clipboards created with another token cannot be opened. |
-| Database mode keeps retrying | Check the host, port, credentials, firewall, and database permissions from every Paper machine. |
+| Database mode keeps retrying | Check the host, port, credentials, firewall, and database permissions from every backend server. |
 | S3 mode keeps retrying | Check the endpoint, bucket, credentials, region, and bucket permissions. |
-| Velocity or BungeeCord players get different UUIDs | Fix proxy player forwarding before using WorldEditSync. Existing clipboards are stored under the UUID seen by Paper. |
-| Paper cannot download libraries on first startup | Allow the server to reach Maven Central, then restart Paper. |
+| Velocity or BungeeCord players get different UUIDs | Fix proxy player forwarding before using WorldEditSync. Existing clipboards are stored under the UUID seen by the backend server. |
+| A server cannot download libraries on first startup | Allow the server to reach Maven Central, then restart it. |
 
-When asking for help, include the WorldEditSync version, Paper version, WorldEdit or FAWE version, selected sync mode, and relevant console errors. Remove tokens and passwords before sharing configuration or logs.
+When asking for help, include the WorldEditSync version, server software and version, WorldEdit or FAWE version, selected sync mode, and relevant console errors. Remove tokens and passwords before sharing configuration or logs.
 
 ## Updating
 
-1. Stop the proxy and Paper servers.
+1. Stop the proxy and backend servers.
 2. Back up the existing WorldEditSync configuration.
 3. Replace the JAR everywhere with the same new version.
 4. Review new options in the example configuration.
-5. Start the proxy first when using Proxy mode, then start the Paper servers.
+5. Start the proxy first when using Proxy mode, then start the backend servers.
 
 ## For Contributors
 

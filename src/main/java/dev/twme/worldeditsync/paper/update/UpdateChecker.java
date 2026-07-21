@@ -36,7 +36,7 @@ public class UpdateChecker {
                 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
                 String latestVersion = response.body().trim();
-                String currentVersion = plugin.getPluginMeta().getVersion();
+                String currentVersion = plugin.getDescription().getVersion();
                 if (!currentVersion.equals(latestVersion)) {
                     plugin.getLogger().info("A new version is available: " + latestVersion
                             + " (current: " + currentVersion + ")");
