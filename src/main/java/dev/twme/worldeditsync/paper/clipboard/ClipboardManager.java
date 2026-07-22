@@ -11,7 +11,7 @@ import dev.twme.worldeditsync.common.protocol.TransferSession;
 import dev.twme.worldeditsync.common.protocol.TransferMemoryBudget;
 
 /**
- * Manages per-player sync state, local clipboard hash cache, and active transfer sessions.
+ * Manages per-player sync state, clipboard hash caches, and active transfer sessions.
  * All state transitions use AtomicReference.compareAndSet to avoid race conditions.
  */
 public class ClipboardManager {
@@ -19,6 +19,7 @@ public class ClipboardManager {
     private final ConcurrentHashMap<UUID, AtomicReference<SyncState>> playerStates = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Object> playerTokens = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, String> localHashes = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, String> remoteHashes = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, SerializedClipboard> serializedClipboards = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, String> activeSessionIds = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, TransferSession> downloadSessions = new ConcurrentHashMap<>();
@@ -134,8 +135,34 @@ public class ClipboardManager {
         localHashes.put(playerId, hash);
     }
 
+    public String getRemoteHash(UUID playerId) {
+        return remoteHashes.get(playerId);
+    }
+
+    public void setRemoteHash(UUID playerId, String hash) {
+        remoteHashes.put(playerId, hash);
+    }
+
+    /** Records content that was accepted by the remote sync backend. */
+    public void markUploadedClipboard(UUID playerId, String hash) {
+        setLocalHash(playerId, hash);
+        setRemoteHash(playerId, hash);
+    }
+
+    /**
+     * Records both the remote source and this server's locally representable form.
+     * These hashes can differ when WorldEdit loads a clipboard from a newer game version.
+     */
+    public void markDownloadedClipboard(UUID playerId, Object clipboard,
+                                        String remoteHash, String localHash) {
+        setRemoteHash(playerId, remoteHash);
+        setLocalHash(playerId, localHash);
+        markSerializedClipboard(playerId, clipboard, localHash);
+    }
+
     public void forgetClipboard(UUID playerId) {
         localHashes.remove(playerId);
+        remoteHashes.remove(playerId);
         serializedClipboards.remove(playerId);
     }
 
@@ -238,6 +265,7 @@ public class ClipboardManager {
         playerStates.remove(playerId);
         playerTokens.remove(playerId);
         localHashes.remove(playerId);
+        remoteHashes.remove(playerId);
         serializedClipboards.remove(playerId);
         String sessionId = activeSessionIds.remove(playerId);
         if (sessionId != null) {
@@ -260,6 +288,7 @@ public class ClipboardManager {
         playerStates.clear();
         playerTokens.clear();
         localHashes.clear();
+        remoteHashes.clear();
         serializedClipboards.clear();
         activeSessionIds.clear();
         downloadSessions.forEach((sessionId, session) -> {

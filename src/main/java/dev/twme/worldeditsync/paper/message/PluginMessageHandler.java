@@ -119,9 +119,9 @@ public class PluginMessageHandler implements PluginMessageListener {
         }
         clipboardManager.clearActiveSession(playerId);
 
-        String localHash = clipboardManager.getLocalHash(playerId);
+        String knownRemoteHash = clipboardManager.getRemoteHash(playerId);
 
-        if (remoteHash.equals(localHash)) {
+        if (remoteHash.equalsIgnoreCase(knownRemoteHash)) {
             clipboardManager.forceSetState(playerId, SyncState.IDLE);
             logger.fine("Hash match for " + player.getName() + ", no download needed.");
             return;
@@ -338,8 +338,12 @@ public class PluginMessageHandler implements PluginMessageListener {
                 Clipboard clipboard = clipboardSerializer.deserialize(
                         decrypted, transferConfig.getMaxClipboardSize(),
                         transferConfig.getMaxClipboardBlocks());
+                String localHash = HashUtil.sha256Hex(clipboardSerializer.serialize(
+                        clipboard, transferConfig.getMaxClipboardSize(),
+                        transferConfig.getMaxClipboardBlocks()));
                 SchedulerUtil.runOnEntityThread(plugin, player,
-                        () -> applyDownloadedClipboard(player, sessionId, clipboard, actualHash));
+                        () -> applyDownloadedClipboard(
+                                player, sessionId, clipboard, actualHash, localHash));
             } catch (Exception e) {
                 logger.severe("Failed to complete download for " + playerName + ": " + e.getMessage());
                 rejectDownload(player, sessionId, "download_failed");
@@ -359,7 +363,8 @@ public class PluginMessageHandler implements PluginMessageListener {
     }
 
     private void applyDownloadedClipboard(Player player, String sessionId,
-                                          Clipboard clipboard, String actualHash) {
+                                          Clipboard clipboard, String remoteHash,
+                                          String localHash) {
         UUID playerId = player.getUniqueId();
         if (!player.isOnline()
                 || clipboardManager.getState(playerId) != SyncState.DOWNLOADING
@@ -376,8 +381,8 @@ public class PluginMessageHandler implements PluginMessageListener {
 
         try {
             clipboardSerializer.setPlayerClipboard(player, clipboard);
-            clipboardManager.setLocalHash(playerId, actualHash);
-            clipboardManager.markSerializedClipboard(playerId, clipboard, actualHash);
+            clipboardManager.markDownloadedClipboard(
+                    playerId, clipboard, remoteHash, localHash);
             clipboardManager.removeDownloadSession(sessionId);
             clipboardManager.clearActiveSession(playerId);
             clipboardManager.forceSetState(playerId, SyncState.IDLE);

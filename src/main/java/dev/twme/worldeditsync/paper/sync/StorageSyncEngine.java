@@ -383,9 +383,10 @@ public class StorageSyncEngine implements SyncEngine {
                 throw new SecurityException(storage.description() + " clipboard hash metadata is invalid");
             }
 
-            String localHash = clipboardManager.getLocalHash(playerId);
+            String knownRemoteHash = clipboardManager.getRemoteHash(playerId);
             if (remote.exists()
-                    && (localHash == null || !remote.hash().equalsIgnoreCase(localHash))) {
+                    && (knownRemoteHash == null
+                    || !remote.hash().equalsIgnoreCase(knownRemoteHash))) {
                 callbackScheduled = downloadRemoteClipboard(
                         player, playerId, playerToken, playerName, clipboard, remote);
                 return;
@@ -394,7 +395,8 @@ public class StorageSyncEngine implements SyncEngine {
             if (clipboard == null) {
                 return;
             }
-            if (remote.exists() && remote.hash().equalsIgnoreCase(localHash)
+            String localHash = clipboardManager.getLocalHash(playerId);
+            if (remote.exists() && remote.hash().equalsIgnoreCase(knownRemoteHash)
                     && clipboardManager.isSerializedClipboard(playerId, clipboard)) {
                 return;
             }
@@ -486,7 +488,7 @@ public class StorageSyncEngine implements SyncEngine {
                 progress.cancel();
                 return;
             }
-            clipboardManager.setLocalHash(playerId, hash);
+            clipboardManager.markUploadedClipboard(playerId, hash);
             progress.complete();
             logger.fine("Uploaded clipboard to " + storage.description() + " for " + playerName);
         } catch (Exception e) {
@@ -531,6 +533,9 @@ public class StorageSyncEngine implements SyncEngine {
             Clipboard downloaded = clipboardSerializer.deserialize(
                     data, transferConfig.getMaxClipboardSize(),
                     transferConfig.getMaxClipboardBlocks());
+            String localHash = HashUtil.sha256Hex(clipboardSerializer.serialize(
+                    downloaded, transferConfig.getMaxClipboardSize(),
+                    transferConfig.getMaxClipboardBlocks()));
             boolean scheduled = scheduleEntityContinuation(player, playerId, playerToken, () -> {
                 if (!running.get()
                         || !player.isOnline()
@@ -546,8 +551,8 @@ public class StorageSyncEngine implements SyncEngine {
                 }
                 try {
                     clipboardSerializer.setPlayerClipboard(player, downloaded);
-                    clipboardManager.setLocalHash(playerId, actualHash);
-                    clipboardManager.markSerializedClipboard(playerId, downloaded, actualHash);
+                    clipboardManager.markDownloadedClipboard(
+                            playerId, downloaded, actualHash, localHash);
                     progress.complete();
                     logger.info("Clipboard synced from " + storage.description() + " for " + playerName);
                 } catch (Exception e) {

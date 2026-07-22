@@ -27,7 +27,7 @@ import dev.twme.worldeditsync.velocity.config.VelocityConfig;
 import dev.twme.worldeditsync.velocity.handler.MessageHandler;
 import dev.twme.worldeditsync.velocity.storage.ClipboardStore;
 
-@Plugin(id = "worldeditsync", name = "WorldEditSync", version = "0.1.0",
+@Plugin(id = "worldeditsync", name = "WorldEditSync", version = "0.1.1",
         description = "Synchronize WorldEdit clipboards across servers",
         authors = {"TWME"})
 public class WorldEditSyncVelocity {

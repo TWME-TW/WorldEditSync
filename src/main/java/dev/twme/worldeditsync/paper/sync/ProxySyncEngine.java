@@ -276,7 +276,7 @@ public class ProxySyncEngine implements SyncEngine, UploadSessionListener {
         clipboardManager.releaseTransferMemory(upload.payload.length);
         upload.progress.complete();
         if (sessionId.equals(clipboardManager.getActiveSessionId(playerId))) {
-            clipboardManager.setLocalHash(playerId, upload.hash);
+            clipboardManager.markUploadedClipboard(playerId, upload.hash);
             clipboardManager.clearActiveSession(playerId);
             clipboardManager.forceSetState(playerId, SyncState.IDLE);
         }
