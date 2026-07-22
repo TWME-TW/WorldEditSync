@@ -51,14 +51,9 @@ public class S3StorageManager {
      * Returns the ready client, or null on failure.
      */
     public MinioClient initialize() {
+        MinioClient client = null;
         try {
-            MinioClient.Builder builder = MinioClient.builder()
-                    .endpoint(endpoint)
-                    .credentials(accessKey, secretKey);
-            if (region != null && !region.isBlank()) {
-                builder.region(region);
-            }
-            MinioClient client = builder.build();
+            client = createClient();
             client.setTimeout(10_000L, 30_000L, 30_000L);
             boolean exists = client.bucketExists(BucketExistsArgs.builder().bucket(bucket).build());
             if (!exists) {
@@ -74,9 +69,26 @@ public class S3StorageManager {
             }
             return client;
         } catch (Exception e) {
+            if (client != null) {
+                try {
+                    client.close();
+                } catch (Exception closeError) {
+                    e.addSuppressed(closeError);
+                }
+            }
             logger.severe("Failed to initialize S3: " + e.getMessage());
             return null;
         }
+    }
+
+    protected MinioClient createClient() {
+        MinioClient.Builder builder = MinioClient.builder()
+                .endpoint(endpoint)
+                .credentials(accessKey, secretKey);
+        if (region != null && !region.isBlank()) {
+            builder.region(region);
+        }
+        return builder.build();
     }
 
     /**

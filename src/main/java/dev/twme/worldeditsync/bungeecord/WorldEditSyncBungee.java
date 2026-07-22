@@ -14,6 +14,7 @@ import net.md_5.bungee.api.event.PluginMessageEvent;
 import net.md_5.bungee.api.event.PlayerDisconnectEvent;
 import net.md_5.bungee.api.plugin.Listener;
 import net.md_5.bungee.api.plugin.Plugin;
+import net.md_5.bungee.api.scheduler.ScheduledTask;
 import net.md_5.bungee.event.EventHandler;
 
 public class WorldEditSyncBungee extends Plugin implements Listener {
@@ -21,6 +22,7 @@ public class WorldEditSyncBungee extends Plugin implements Listener {
     private ClipboardStore store;
     private MessageHandler messageHandler;
     private BungeeConfig config;
+    private ScheduledTask cleanupTask;
 
     @Override
     public void onEnable() {
@@ -37,7 +39,7 @@ public class WorldEditSyncBungee extends Plugin implements Listener {
             return;
         }
 
-        store = new ClipboardStore();
+        store = new ClipboardStore(config.getMemoryLimitBytes());
 
         MessageCipher cipher = new MessageCipher(config.getToken());
         if (cipher.isEnabled()) {
@@ -46,13 +48,13 @@ public class WorldEditSyncBungee extends Plugin implements Listener {
             getLogger().warning("Encryption disabled! Set 'token' in config.yml for secure transfers.");
         }
 
-        PluginMessageCodec pluginMessageCodec = new PluginMessageCodec(config.getToken());
+        PluginMessageCodec pluginMessageCodec = PluginMessageCodec.forProxy(config.getToken());
         messageHandler = new MessageHandler(this, store, config.getChunkSize(),
                 config.getMaxClipboardSize(), config.getChunkSendDelayMs(),
                 config.getSessionTimeoutMs(), pluginMessageCodec);
 
         // Schedule cleanup tasks
-        getProxy().getScheduler().schedule(this, () -> {
+        cleanupTask = getProxy().getScheduler().schedule(this, () -> {
             store.cleanupExpiredSessions(config.getSessionTimeoutMs());
             store.cleanupExpiredClipboards(config.getClipboardTtlMinutes());
         }, 2, 2, TimeUnit.MINUTES);
@@ -63,6 +65,13 @@ public class WorldEditSyncBungee extends Plugin implements Listener {
     @Override
     public void onDisable() {
         getProxy().unregisterChannel(Constants.CHANNEL);
+        if (cleanupTask != null) {
+            cleanupTask.cancel();
+            cleanupTask = null;
+        }
+        if (messageHandler != null) {
+            messageHandler.shutdown();
+        }
         if (store != null) {
             store.shutdown();
         }

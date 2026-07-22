@@ -18,6 +18,7 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import com.velocitypowered.api.proxy.messages.ChannelIdentifier;
 import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
+import com.velocitypowered.api.scheduler.ScheduledTask;
 
 import dev.twme.worldeditsync.common.Constants;
 import dev.twme.worldeditsync.common.crypto.MessageCipher;
@@ -39,6 +40,7 @@ public class WorldEditSyncVelocity {
     private ChannelIdentifier channelId;
     private MessageHandler messageHandler;
     private VelocityConfig config;
+    private ScheduledTask cleanupTask;
 
     @Inject
     public WorldEditSyncVelocity(ProxyServer server, Logger logger, @DataDirectory Path dataDirectory) {
@@ -63,7 +65,7 @@ public class WorldEditSyncVelocity {
             return;
         }
 
-        store = new ClipboardStore();
+        store = new ClipboardStore(config.getMemoryLimitBytes());
 
         MessageCipher cipher = new MessageCipher(config.getToken());
         if (cipher.isEnabled()) {
@@ -73,13 +75,13 @@ public class WorldEditSyncVelocity {
         }
 
         // Initialize handler
-        PluginMessageCodec pluginMessageCodec = new PluginMessageCodec(config.getToken());
+        PluginMessageCodec pluginMessageCodec = PluginMessageCodec.forProxy(config.getToken());
         messageHandler = new MessageHandler(this, server, store, channelId,
                 config.getChunkSize(), config.getMaxClipboardSize(), config.getChunkSendDelayMs(),
                 config.getSessionTimeoutMs(), pluginMessageCodec, logger);
 
         // Schedule cleanup
-        server.getScheduler().buildTask(this, () -> {
+        cleanupTask = server.getScheduler().buildTask(this, () -> {
             store.cleanupExpiredSessions(config.getSessionTimeoutMs());
             store.cleanupExpiredClipboards(config.getClipboardTtlMinutes());
         }).repeat(Duration.ofMinutes(2)).schedule();
@@ -91,6 +93,13 @@ public class WorldEditSyncVelocity {
     public void onProxyShutdown(ProxyShutdownEvent event) {
         if (channelId != null) {
             server.getChannelRegistrar().unregister(channelId);
+        }
+        if (cleanupTask != null) {
+            cleanupTask.cancel();
+            cleanupTask = null;
+        }
+        if (messageHandler != null) {
+            messageHandler.shutdown();
         }
         if (store != null) {
             store.shutdown();

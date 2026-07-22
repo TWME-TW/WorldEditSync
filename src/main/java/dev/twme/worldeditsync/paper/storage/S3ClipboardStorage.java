@@ -45,8 +45,12 @@ public final class S3ClipboardStorage implements ClipboardStorage {
     }
 
     @Override
-    public void close() {
+    public void close() throws Exception {
+        MinioClient activeClient = client;
         client = null;
+        if (activeClient != null) {
+            activeClient.close();
+        }
     }
 
     private MinioClient requireClient() {

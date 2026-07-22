@@ -61,11 +61,15 @@ public class PaperConfig {
 
         transferConfig.setChunkSize(config.getInt("transfer.chunk-size", transferConfig.getChunkSize()));
         transferConfig.setMaxClipboardSize(config.getInt("transfer.max-clipboard-size", transferConfig.getMaxClipboardSize()));
+        transferConfig.setMaxClipboardBlocks(config.getLong(
+                "transfer.max-clipboard-blocks", transferConfig.getMaxClipboardBlocks()));
         transferConfig.setSessionTimeoutMs(config.getLong("transfer.session-timeout-ms", transferConfig.getSessionTimeoutMs()));
         transferConfig.setChunkSendDelayMs(config.getLong("transfer.chunk-send-delay-ms", transferConfig.getChunkSendDelayMs()));
         transferConfig.setWatcherIntervalTicks(config.getInt("transfer.watcher-interval-ticks", transferConfig.getWatcherIntervalTicks()));
         transferConfig.setWatcherInitialDelayTicks(config.getInt("transfer.watcher-initial-delay-ticks", transferConfig.getWatcherInitialDelayTicks()));
         transferConfig.setClipboardTtlMinutes(config.getLong("transfer.clipboard-ttl-minutes", transferConfig.getClipboardTtlMinutes()));
+        transferConfig.setMemoryLimitBytes(config.getLong(
+                "transfer.memory-limit-bytes", transferConfig.getMemoryLimitBytes()));
     }
 
     public boolean isProxyMode() {

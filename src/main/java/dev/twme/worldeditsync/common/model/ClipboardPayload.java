@@ -1,7 +1,7 @@
 package dev.twme.worldeditsync.common.model;
 
 /**
- * Immutable representation of a clipboard payload stored on the Proxy or S3.
+ * Proxy-owned clipboard payload. Callers must treat the backing data as read-only.
  */
 public class ClipboardPayload {
 
@@ -37,7 +37,12 @@ public class ClipboardPayload {
         if (ttlMinutes <= 0) {
             return false;
         }
-        long age = System.currentTimeMillis() - timestamp;
-        return age > ttlMinutes * 60_000L;
+        long now = System.currentTimeMillis();
+        if (timestamp > now) {
+            return false;
+        }
+        long ttlMillis = ttlMinutes > Long.MAX_VALUE / 60_000L
+                ? Long.MAX_VALUE : ttlMinutes * 60_000L;
+        return now - timestamp >= ttlMillis;
     }
 }

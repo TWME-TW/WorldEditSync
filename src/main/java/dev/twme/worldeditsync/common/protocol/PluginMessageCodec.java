@@ -3,7 +3,6 @@ package dev.twme.worldeditsync.common.protocol;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
-import java.util.Arrays;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
@@ -23,31 +22,38 @@ public final class PluginMessageCodec {
     private static final int IV_LENGTH = 12;
     private static final int TAG_BITS = 128;
     private static final String ALGORITHM = "AES/GCM/NoPadding";
-    private static final byte[] KEY_CONTEXT = "WorldEditSync/plugin-message/v2\0"
+    private static final byte[] KEY_CONTEXT = "WorldEditSync/plugin-message/v3\0"
             .getBytes(StandardCharsets.US_ASCII);
 
-    private final SecretKeySpec key;
+    private final SecretKeySpec outboundKey;
+    private final SecretKeySpec inboundKey;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    public PluginMessageCodec(String token) {
+    private PluginMessageCodec(String token, String outboundDirection, String inboundDirection) {
         if (token == null || token.isBlank()) {
-            key = null;
+            outboundKey = null;
+            inboundKey = null;
             return;
         }
 
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update(KEY_CONTEXT);
-            key = new SecretKeySpec(
-                    digest.digest(token.getBytes(StandardCharsets.UTF_8)),
-                    "AES");
+            outboundKey = deriveKey(token, outboundDirection);
+            inboundKey = deriveKey(token, inboundDirection);
         } catch (Exception e) {
             throw new SecurityException("Failed to derive plugin-message encryption key", e);
         }
     }
 
+    public static PluginMessageCodec forPaper(String token) {
+        return new PluginMessageCodec(token, "paper-to-proxy", "proxy-to-paper");
+    }
+
+    public static PluginMessageCodec forProxy(String token) {
+        return new PluginMessageCodec(token, "proxy-to-paper", "paper-to-proxy");
+    }
+
     public boolean isEnabled() {
-        return key != null;
+        return outboundKey != null;
     }
 
     public byte[] encode(byte[] protocolMessage) {
@@ -70,7 +76,7 @@ public final class PluginMessageCodec {
             byte[] iv = new byte[IV_LENGTH];
             secureRandom.nextBytes(iv);
             Cipher cipher = Cipher.getInstance(ALGORITHM);
-            cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, iv));
+            cipher.init(Cipher.ENCRYPT_MODE, outboundKey, new GCMParameterSpec(TAG_BITS, iv));
             cipher.updateAAD(MAGIC);
             byte[] ciphertext = cipher.doFinal(protocolMessage);
 
@@ -101,15 +107,24 @@ public final class PluginMessageCodec {
         }
 
         try {
-            byte[] iv = Arrays.copyOfRange(wireMessage, MAGIC.length, MAGIC.length + IV_LENGTH);
-            byte[] ciphertext = Arrays.copyOfRange(
-                    wireMessage, MAGIC.length + IV_LENGTH, wireMessage.length);
             Cipher cipher = Cipher.getInstance(ALGORITHM);
-            cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, iv));
+            cipher.init(Cipher.DECRYPT_MODE, inboundKey,
+                    new GCMParameterSpec(TAG_BITS, wireMessage, MAGIC.length, IV_LENGTH));
             cipher.updateAAD(MAGIC);
-            return ProtocolCodec.decode(cipher.doFinal(ciphertext));
+            int ciphertextOffset = MAGIC.length + IV_LENGTH;
+            return ProtocolCodec.decode(cipher.doFinal(
+                    wireMessage, ciphertextOffset, wireMessage.length - ciphertextOffset));
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private static SecretKeySpec deriveKey(String token, String direction) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        digest.update(KEY_CONTEXT);
+        digest.update(direction.getBytes(StandardCharsets.US_ASCII));
+        digest.update((byte) 0);
+        return new SecretKeySpec(
+                digest.digest(token.getBytes(StandardCharsets.UTF_8)), "AES");
     }
 }

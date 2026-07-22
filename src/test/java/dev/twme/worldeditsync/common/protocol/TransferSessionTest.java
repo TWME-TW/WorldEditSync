@@ -4,6 +4,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertSame;
 
 import org.junit.Test;
 
@@ -11,7 +12,7 @@ public class TransferSessionTest {
 
     @Test
     public void assemblesOutOfOrderChunksExactlyOnce() {
-        TransferSession session = new TransferSession("session", 2, 5, "hash");
+        TransferSession session = new TransferSession("session", 2, 5, 3, "hash");
 
         assertTrue(session.addChunk(1, new byte[] {4, 5}));
         assertFalse(session.isComplete());
@@ -19,12 +20,14 @@ public class TransferSessionTest {
         assertTrue(session.isComplete());
         assertTrue(session.tryClaimCompletion());
         assertFalse(session.tryClaimCompletion());
-        assertArrayEquals(new byte[] {1, 2, 3, 4, 5}, session.assemble());
+        byte[] assembled = session.assemble();
+        assertArrayEquals(new byte[] {1, 2, 3, 4, 5}, assembled);
+        assertSame(assembled, session.assemble());
     }
 
     @Test
     public void ignoresDuplicateChunkWithoutReplacingData() {
-        TransferSession session = new TransferSession("session", 1, 2, "hash");
+        TransferSession session = new TransferSession("session", 1, 2, 2, "hash");
 
         assertTrue(session.addChunk(0, new byte[] {1, 2}));
         assertFalse(session.addChunk(0, new byte[] {9, 9}));
@@ -33,7 +36,7 @@ public class TransferSessionTest {
 
     @Test
     public void rejectsInvalidChunkIndexAndOverflow() {
-        TransferSession session = new TransferSession("session", 2, 3, "hash");
+        TransferSession session = new TransferSession("session", 2, 3, 2, "hash");
 
         assertThrows(IllegalArgumentException.class,
                 () -> session.addChunk(2, new byte[] {1}));
@@ -51,8 +54,21 @@ public class TransferSessionTest {
 
     @Test
     public void expiresAtTheConfiguredDeadline() {
-        TransferSession session = new TransferSession("session", 1, 1, "hash");
+        TransferSession session = new TransferSession("session", 1, 1, 1, "hash");
 
         assertTrue(session.isExpired(0));
+    }
+
+    @Test
+    public void releaseDropsDataAndPreventsReuse() {
+        TransferSession session = new TransferSession("session", 1, 2, 2, "hash");
+        session.addChunk(0, new byte[] {1, 2});
+
+        session.release();
+
+        assertFalse(session.isComplete());
+        assertThrows(IllegalStateException.class, session::assemble);
+        assertThrows(IllegalStateException.class,
+                () -> session.addChunk(0, new byte[] {1, 2}));
     }
 }

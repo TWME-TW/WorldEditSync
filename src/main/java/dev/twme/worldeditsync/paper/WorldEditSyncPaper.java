@@ -4,6 +4,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import dev.twme.worldeditsync.common.crypto.MessageCipher;
 import dev.twme.worldeditsync.common.protocol.PluginMessageCodec;
+import dev.twme.worldeditsync.common.protocol.TransferMemoryBudget;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardManager;
 import dev.twme.worldeditsync.paper.clipboard.ClipboardSerializer;
 import dev.twme.worldeditsync.paper.config.PaperConfig;
@@ -50,6 +51,8 @@ public class WorldEditSyncPaper extends JavaPlugin {
 
         // Core components
         clipboardManager = new ClipboardManager();
+        clipboardManager.setTransferMemoryBudget(new TransferMemoryBudget(
+                paperConfig.getTransferConfig().getMemoryLimitBytes()));
         clipboardSerializer = new ClipboardSerializer();
         actionBarProgress = new ActionBarProgress(this, paperConfig.isActionBarEnabled());
         MessageCipher cipher = new MessageCipher(paperConfig.getToken());
@@ -74,7 +77,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
         } else if (paperConfig.isDatabaseMode()) {
             initDatabaseMode(cipher);
         } else {
-            initProxyMode(cipher, new PluginMessageCodec(paperConfig.getToken()));
+            initProxyMode(cipher, PluginMessageCodec.forPaper(paperConfig.getToken()));
         }
 
         if (syncEngine == null) {
@@ -91,7 +94,7 @@ public class WorldEditSyncPaper extends JavaPlugin {
         // Storage-backed modes have their own polling; proxy mode needs this watcher.
         if (paperConfig.isProxyMode()) {
             clipboardWatcher = new ClipboardWatcher(this, clipboardManager, clipboardSerializer,
-                    syncEngine);
+                    syncEngine, paperConfig.getTransferConfig());
             clipboardWatcher.start(
                     paperConfig.getTransferConfig().getWatcherInitialDelayTicks(),
                     paperConfig.getTransferConfig().getWatcherIntervalTicks());

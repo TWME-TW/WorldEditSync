@@ -50,11 +50,10 @@ public class SingleUploadSessionTest {
 
         assertTrue(store.addUploadSession("first", playerId, first));
         assertTrue(store.addUploadSession("second", playerId, second));
-        assertFalse(store.completeUploadSession("first", playerId, first,
-                new byte[] {1}, "first-hash"));
+        assertFalse(store.completeUploadSession("first", playerId, first));
         assertNull(store.getClipboard(playerId));
-        assertTrue(store.completeUploadSession("second", playerId, second,
-                new byte[] {2}, "second-hash"));
+        second.addChunk(0, new byte[] {2});
+        assertTrue(store.completeUploadSession("second", playerId, second));
         assertArrayEquals(new byte[] {2}, store.getClipboard(playerId).getData());
         assertFalse(store.hasActiveUpload(playerId));
     }
@@ -73,8 +72,7 @@ public class SingleUploadSessionTest {
         assertTrue(store.addUploadSession("complete", playerId, complete));
         store.removeIncompleteUploadSessionForOwner(playerId);
         assertSame(complete, store.getUploadSession("complete"));
-        assertTrue(store.completeUploadSession(
-                "complete", playerId, complete, new byte[] {1}, "hash"));
+        assertTrue(store.completeUploadSession("complete", playerId, complete));
     }
 
     @Test
@@ -91,8 +89,7 @@ public class SingleUploadSessionTest {
         assertTrue(store.addUploadSession("complete", playerId, complete));
         store.removeIncompleteUploadSessionForOwner(playerId);
         assertSame(complete, store.getUploadSession("complete"));
-        assertTrue(store.completeUploadSession(
-                "complete", playerId, complete, new byte[] {1}, "hash"));
+        assertTrue(store.completeUploadSession("complete", playerId, complete));
     }
 
     @Test
@@ -136,16 +133,15 @@ public class SingleUploadSessionTest {
 
         assertTrue(store.addUploadSession("first", playerId, first));
         assertTrue(store.addUploadSession("second", playerId, second));
-        assertFalse(store.completeUploadSession("first", playerId, first,
-                new byte[] {1}, "first-hash"));
+        assertFalse(store.completeUploadSession("first", playerId, first));
         assertNull(store.getClipboard(playerId));
-        assertTrue(store.completeUploadSession("second", playerId, second,
-                new byte[] {2}, "second-hash"));
+        second.addChunk(0, new byte[] {2});
+        assertTrue(store.completeUploadSession("second", playerId, second));
         assertArrayEquals(new byte[] {2}, store.getClipboard(playerId).getData());
         assertFalse(store.hasActiveUpload(playerId));
     }
 
     private TransferSession session(String id) {
-        return new TransferSession(id, 1, 1, "hash");
+        return new TransferSession(id, 1, 1, 1, "hash");
     }
 }

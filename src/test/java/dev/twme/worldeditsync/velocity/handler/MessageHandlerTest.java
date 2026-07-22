@@ -48,7 +48,8 @@ public class MessageHandlerTest {
         when(player.getCurrentServer()).thenReturn(Optional.of(connection));
 
         ClipboardStore store = new ClipboardStore();
-        PluginMessageCodec wireCodec = new PluginMessageCodec("test-token");
+        PluginMessageCodec paperCodec = PluginMessageCodec.forPaper("test-token");
+        PluginMessageCodec proxyCodec = PluginMessageCodec.forProxy("test-token");
         MessageHandler handler = new MessageHandler(
                 new Object(),
                 proxy,
@@ -58,19 +59,19 @@ public class MessageHandlerTest {
                 1024,
                 0,
                 30_000,
-                wireCodec,
+                proxyCodec,
                 mock(Logger.class));
 
         String sessionId = UUID.randomUUID().toString();
         String hash = "a".repeat(64);
         handler.handleMessage(player,
-                wireCodec.encode(ProtocolCodec.encodeUploadBegin(sessionId, 5, 2, hash)));
+                paperCodec.encode(ProtocolCodec.encodeUploadBegin(sessionId, 5, 2, hash)));
 
         assertNotNull(store.getUploadSession(sessionId));
         ArgumentCaptor<byte[]> messages = ArgumentCaptor.forClass(byte[].class);
         verify(connection, atLeastOnce()).sendPluginMessage(eq(channel), messages.capture());
 
-        ParsedMessage ready = wireCodec.decode(messages.getValue());
+        ParsedMessage ready = paperCodec.decode(messages.getValue());
         assertNotNull(ready);
         assertEquals(MessageType.UPLOAD_READY, ready.type());
         try (DataInputStream input = ProtocolCodec.payloadStream(ready)) {
@@ -78,9 +79,9 @@ public class MessageHandlerTest {
         }
 
         handler.handleMessage(player,
-                wireCodec.encode(ProtocolCodec.encodeUploadChunk(sessionId, 1, new byte[] {4, 5})));
+                paperCodec.encode(ProtocolCodec.encodeUploadChunk(sessionId, 1, new byte[] {4, 5})));
         handler.handleMessage(player,
-                wireCodec.encode(ProtocolCodec.encodeUploadChunk(sessionId, 0, new byte[] {1, 2, 3})));
+                paperCodec.encode(ProtocolCodec.encodeUploadChunk(sessionId, 0, new byte[] {1, 2, 3})));
 
         ClipboardPayload stored = store.getClipboard(playerId);
         assertNotNull(stored);

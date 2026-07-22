@@ -37,6 +37,7 @@ public class MessageHandler {
     private final InboundMessageLimiter inboundMessageLimiter = new InboundMessageLimiter();
     private final ConcurrentHashMap<UUID, Long> invalidMessageWarnings = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, String> pendingSyncRequests = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, String> activeDownloads = new ConcurrentHashMap<>();
 
     public MessageHandler(Plugin plugin, ClipboardStore store, int chunkSize, int maxClipboardSize,
                           long chunkSendDelayMs, long sessionTimeoutMs,
@@ -59,6 +60,7 @@ public class MessageHandler {
         }
         ParsedMessage msg = pluginMessageCodec.decode(data);
         if (msg == null) {
+            inboundMessageLimiter.recordInvalidMessage(player.getUniqueId());
             warnInvalidMessage(player, "Invalid protocol message from ");
             return;
         }
@@ -99,7 +101,8 @@ public class MessageHandler {
             return;
         }
 
-        TransferSession session = new TransferSession(sessionId, totalChunks, totalBytes, hash);
+        TransferSession session = new TransferSession(
+                sessionId, totalChunks, totalBytes, chunkSize, hash);
         if (!store.addUploadSession(sessionId, player.getUniqueId(), session)) {
             sendToPlayer(player, ProtocolCodec.encodeCancel(sessionId, "duplicate_session"));
             return;
@@ -152,7 +155,7 @@ public class MessageHandler {
 
         try {
             session.addChunk(chunkIndex, chunkData);
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException | IllegalStateException e) {
             rejectUpload(player, sessionId, e.getMessage());
             return;
         }
@@ -168,9 +171,7 @@ public class MessageHandler {
         String playerName = player.getName();
         plugin.getProxy().getScheduler().runAsync(plugin, () -> {
             try {
-                byte[] assembled = session.assemble();
-                if (!store.completeUploadSession(
-                        sessionId, playerId, session, assembled, session.getExpectedHash())) {
+                if (!store.completeUploadSession(sessionId, playerId, session)) {
                     logger.fine("Ignoring stale completed upload for " + playerName
                             + " (session: " + sessionId + ")");
                     return;
@@ -282,6 +283,7 @@ public class MessageHandler {
         byte[] data = payload.getData();
         int totalChunks = (int) Math.ceil((double) data.length / chunkSize);
         String sessionId = UUID.randomUUID().toString();
+        activeDownloads.put(player.getUniqueId(), sessionId);
 
         byte[] beginMsg = ProtocolCodec.encodeDownloadBegin(
                 requestId, sessionId, data.length, totalChunks, payload.getHash());
@@ -292,7 +294,9 @@ public class MessageHandler {
     private void scheduleDownloadPump(ProxiedPlayer player, Server destination, byte[] data,
                                       String sessionId, int totalChunks, int nextChunk) {
         plugin.getProxy().getScheduler().schedule(plugin, () -> {
-            if (!player.isConnected() || player.getServer() != destination) {
+            if (!player.isConnected()
+                    || !sessionId.equals(activeDownloads.get(player.getUniqueId()))
+                    || player.getServer() != destination) {
                 return;
             }
 
@@ -331,6 +335,7 @@ public class MessageHandler {
             logger.warning("Malformed download acknowledgement from " + player.getName());
             return;
         }
+        activeDownloads.remove(player.getUniqueId(), sessionId);
         logger.fine("Download acknowledged by " + player.getName() + " session: " + sessionId);
     }
 
@@ -346,6 +351,7 @@ public class MessageHandler {
         }
 
         store.removeUploadSession(sessionId, player.getUniqueId());
+        activeDownloads.remove(player.getUniqueId(), sessionId);
         logger.fine("Transfer cancelled by " + player.getName() + ": " + reason);
     }
 
@@ -363,7 +369,15 @@ public class MessageHandler {
         pendingSyncRequests.remove(playerId);
         inboundMessageLimiter.remove(playerId);
         invalidMessageWarnings.remove(playerId);
+        activeDownloads.remove(playerId);
         store.removeIncompleteUploadSessionForOwner(playerId);
+    }
+
+    public void shutdown() {
+        pendingSyncRequests.clear();
+        activeDownloads.clear();
+        invalidMessageWarnings.clear();
+        inboundMessageLimiter.clear();
     }
 
     private void warnInvalidMessage(ProxiedPlayer player, String prefix) {

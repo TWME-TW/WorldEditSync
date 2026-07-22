@@ -10,6 +10,7 @@ import net.md_5.bungee.config.Configuration;
 import net.md_5.bungee.config.ConfigurationProvider;
 import net.md_5.bungee.config.YamlConfiguration;
 import dev.twme.worldeditsync.common.Constants;
+import dev.twme.worldeditsync.common.crypto.MessageCipher;
 
 public class BungeeConfig {
 
@@ -19,11 +20,18 @@ public class BungeeConfig {
     private int chunkSize = 30_000;
     private long chunkSendDelayMs = 5;
     private int maxClipboardSize = 52_428_800;
+    private long memoryLimitBytes = Constants.DEFAULT_TRANSFER_MEMORY_LIMIT_BYTES;
 
     public void load(Plugin plugin) {
         File dataFolder = plugin.getDataFolder();
         if (!dataFolder.exists()) {
-            dataFolder.mkdirs();
+            try {
+                Files.createDirectories(dataFolder.toPath());
+            } catch (IOException e) {
+                plugin.getLogger().severe("Failed to create plugin data directory: "
+                        + e.getMessage());
+                return;
+            }
         }
 
         File configFile = new File(dataFolder, "config.yml");
@@ -48,9 +56,17 @@ public class BungeeConfig {
             chunkSize = config.getInt("transfer.chunk-size", chunkSize);
             chunkSendDelayMs = config.getLong("transfer.chunk-send-delay-ms", chunkSendDelayMs);
             maxClipboardSize = config.getInt("transfer.max-clipboard-size", maxClipboardSize);
-            chunkSize = Math.max(1, Math.min(Constants.MAX_CHUNK_SIZE, chunkSize));
+            memoryLimitBytes = config.getLong(
+                    "transfer.memory-limit-bytes", memoryLimitBytes);
+            chunkSize = Math.max(Constants.MIN_CHUNK_SIZE,
+                    Math.min(Constants.MAX_CHUNK_SIZE, chunkSize));
             maxClipboardSize = Math.max(1, Math.min(
                     Constants.ABSOLUTE_MAX_CLIPBOARD_SIZE, maxClipboardSize));
+            memoryLimitBytes = Math.max(
+                    (long) maxClipboardSize + MessageCipher.ENCRYPTION_OVERHEAD_BYTES,
+                    Math.max(Constants.MIN_TRANSFER_MEMORY_LIMIT_BYTES,
+                            Math.min(Constants.MAX_TRANSFER_MEMORY_LIMIT_BYTES,
+                                    memoryLimitBytes)));
             chunkSendDelayMs = Math.max(0L, Math.min(1_000L, chunkSendDelayMs));
             sessionTimeoutMs = Math.max(5_000L, sessionTimeoutMs);
             clipboardTtlMinutes = Math.max(0L, clipboardTtlMinutes);
@@ -81,5 +97,9 @@ public class BungeeConfig {
 
     public int getMaxClipboardSize() {
         return maxClipboardSize;
+    }
+
+    public long getMemoryLimitBytes() {
+        return memoryLimitBytes;
     }
 }
